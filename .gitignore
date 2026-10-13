@@ -1,0 +1,122 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+# Local editor launch profiles select the private configuration.
+/.vscode/launch.json
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Private credentials
+.env
+.env.*
+!.env.example
+**/key.properties
+**/*.jks
+**/*.keystore
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.key
+**/*.mobileprovision
+**/*service-account*.json
+**/*serviceAccount*.json
+**/*firebase-adminsdk*.json
+**/application_default_credentials.json
+**/credentials.json
+**/.npmrc
+**/.netrc
+**/.gcloud/
+**/.aws/
+
+# Firebase and Node.js
+.firebase/
+**/node_modules/
+**/*.local
+
+# Database / Storage exports can contain residents' personal information.
+firebase-export-metadata.json
+**/firestore_export/
+**/storage_export/
+/firebase-export*/
+/exports/
+/dumps/
+
+# Private community photographs
+/assets/images/community/
+/assets/images/Imagen_de_Inicio.png
+# Personal documentation
+bugs.md
+
+# Private build-time configuration and local Firebase registration
+/config/*.local.json
+/config/firebase.local.json
+/android/app/google-services.json
+**/GoogleService-Info.plist
+.firebaserc
+/PUBLICATION_REVIEW.md
+/backups/
+*.bundle
+*.apk
+*.aab
+
+# Local-only material: never include it in a public source snapshot.
+/.vscode/
+/Pasados/
+/respaldo*/
+/backup*/
+/herramientas-auditoria/
+/LOCAL_SCREENSHOTS.md
+/lib/demo/
+/test/screenshot_demo_test.dart
+*.zip
+*.7z
+*.bak
+*.old
+*.orig
+*.sqlite
+*.sqlite3
+*.db
+**/local.properties
+**/google-services.json
+**/firebase-debug*.log
+**/.kotlin/

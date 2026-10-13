@@ -1,0 +1,64 @@
+name: micomunidad
+description: "Aplicación de gestión comunitaria MiComunidad"
+publish_to: 'none'
+
+version: 1.0.4+5
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^4.12.1
+  firebase_auth: ^6.5.6
+  cloud_firestore: ^6.7.1
+  firebase_storage: ^13.4.5
+  cloud_functions: ^6.3.5
+
+  # Utilities
+  intl: ^0.20.2
+
+  # UI
+  file_picker: ^10.3.10
+  url_launcher: ^6.3.2
+  google_fonts: ^6.1.0
+
+  # Maps
+  flutter_map: ^8.3.1
+  latlong2: ^0.10.0
+  shared_preferences: ^2.5.5
+  path_provider: ^2.1.6
+  firebase_app_check: ^0.4.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+  # Testing
+  mockito: ^5.4.0
+  fake_cloud_firestore: ^4.2.0
+
+flutter:
+  uses-material-design: true
+  default-flavor: demo
+  assets:
+    - assets/branding/
+    - path: assets/images/Imagen_de_Inicio.png
+      flavors:
+        - private
+    - path: assets/images/community/community_view.png
+      flavors:
+        - private
+    - path: assets/images/community/community_families.png
+      flavors:
+        - private
+    - path: assets/images/community/community_work.png
+      flavors:
+        - private

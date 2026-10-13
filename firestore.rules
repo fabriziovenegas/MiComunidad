@@ -1,0 +1,189 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function approved() { return signedIn() && profile().approvalStatus == 'aprobado' && profile().role in ['vecino', 'admin']; }
+    function admin() { return approved() && profile().role == 'admin'; }
+    function owns(field) { return signedIn() && resource.data[field] == request.auth.uid; }
+    function reportVisibleToMember(report) {
+      return report.moderationStatus == 'aprobado'
+        && report.status in ['pendiente', 'en_revision', 'en_proceso', 'resuelto'];
+    }
+    function reportOwnedByRequester(report) {
+      return report.createdBy == request.auth.uid;
+    }
+    function reportExists(reportId) {
+      return exists(/databases/$(database)/documents/reports/$(reportId));
+    }
+    function reportById(reportId) {
+      return get(/databases/$(database)/documents/reports/$(reportId)).data;
+    }
+    function reportActiveForContributions(report) {
+      return report.moderationStatus == 'aprobado'
+        && report.status in ['pendiente', 'en_revision', 'en_proceso'];
+    }
+    function reportAcceptsPhotos(report) {
+      return reportActiveForContributions(report)
+        || (report.moderationStatus == 'pendiente'
+          && reportOwnedByRequester(report));
+    }
+    function reportCompleted(report) {
+      return (report.moderationStatus == 'aprobado'
+          && report.status == 'resuelto')
+        || report.moderationStatus == 'rechazado'
+        || (report.moderationStatus == 'aprobado'
+          && report.status == 'rechazado');
+    }
+    function activeProject(project) {
+      return project.isTrashed == false;
+    }
+    function activeProjectById(projectId) {
+      return activeProject(
+        get(/databases/$(database)/documents/projects/$(projectId)).data
+      );
+    }
+
+    match /users/{userId} {
+      allow read: if approved() && (request.auth.uid == userId || admin());
+      allow create, delete: if false;
+      allow update: if approved()
+        && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'nombre',
+          'phone',
+          'photoUrl',
+          'address',
+          'timeLivingHere',
+          'reason',
+          'updatedAt'
+        ])
+        && request.resource.data.address is string
+        && request.resource.data.address.size() > 0
+        && request.resource.data.address.size() <= 300
+        && request.resource.data.timeLivingHere is string
+        && request.resource.data.timeLivingHere.size() > 0
+        && request.resource.data.timeLivingHere.size() <= 100
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() <= 1000;
+    }
+
+    match /accessRequests/{requestId} {
+      allow create: if signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'anonymous'
+        && request.resource.data.applicantUid == request.auth.uid
+        && request.resource.data.status == 'pendiente'
+        && request.resource.data.dni is string
+        && request.resource.data.dni.size() == 8
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() == 9
+        && request.resource.data.email is string
+        && request.resource.data.identityDocumentUrl is string;
+
+      allow read: if admin();
+      allow update: if false;
+      allow delete: if admin();
+    }
+
+    match /projects/{projectId} {
+      allow read: if admin() || (approved() && activeProject(resource.data));
+      allow create, update, delete: if admin();
+      match /comments/{commentId} {
+        allow read: if admin() || (approved() && activeProjectById(projectId));
+        allow create: if approved()
+          && activeProjectById(projectId)
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000;
+        allow update: if false;
+        allow delete: if admin()
+          || (approved() && activeProjectById(projectId) && owns('authorId'));
+      }
+      match /photos/{fileId} {
+        allow read: if admin() || (approved() && activeProjectById(projectId));
+        allow create: if approved()
+          && activeProjectById(projectId)
+          && request.resource.data.uploadedBy == request.auth.uid;
+        allow update: if false;
+        allow delete: if admin()
+          || (approved() && activeProjectById(projectId) && owns('uploadedBy'));
+      }
+    }
+
+    match /reports/{reportId} {
+      allow read: if admin() || (approved() && (
+        reportVisibleToMember(resource.data)
+        || reportOwnedByRequester(resource.data)
+      ));
+      allow create: if approved()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == 'pendiente'
+        && request.resource.data.moderationStatus == 'pendiente'
+        && request.resource.data.title is string
+        && request.resource.data.description is string;
+      allow update: if admin();
+      allow delete: if admin() && reportCompleted(resource.data);
+      match /comments/{commentId} {
+        allow read: if admin() || (approved() && get(/databases/$(database)/documents/reports/$(reportId)).data.moderationStatus == 'aprobado');
+        allow create: if approved()
+          && reportExists(reportId)
+          && reportActiveForContributions(reportById(reportId))
+          && request.resource.data.authorId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000;
+        allow update: if false;
+        allow delete: if admin() || owns('authorId');
+      }
+      match /photos/{fileId} {
+        allow read: if admin() || (approved() && (
+          reportVisibleToMember(get(/databases/$(database)/documents/reports/$(reportId)).data)
+          || reportOwnedByRequester(get(/databases/$(database)/documents/reports/$(reportId)).data)
+        ));
+        allow create: if approved()
+          && reportExists(reportId)
+          && reportAcceptsPhotos(reportById(reportId))
+          && request.resource.data.uploadedBy == request.auth.uid;
+        allow update: if false;
+        allow delete: if admin() || owns('uploadedBy');
+      }
+    }
+
+    match /events/{eventId} {
+      allow read: if approved();
+      allow create, update, delete: if admin();
+      match /comments/{commentId} {
+        allow read: if approved();
+        allow create: if approved() && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000;
+        allow update: if false;
+        allow delete: if admin() || owns('authorId');
+      }
+      match /photos/{fileId} {
+        allow read: if approved();
+        allow create: if approved() && request.resource.data.uploadedBy == request.auth.uid;
+        allow update: if false;
+        allow delete: if admin() || owns('uploadedBy');
+      }
+      match /minutes/{fileId} {
+        allow read: if approved();
+        allow create: if approved() && request.resource.data.uploadedBy == request.auth.uid;
+        allow update: if false;
+        allow delete: if admin() || owns('uploadedBy');
+      }
+    }
+
+    match /mapPoints/{pointId} {
+      allow read: if approved();
+      allow create, update, delete: if admin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read, delete: if approved() && resource.data.userId == request.auth.uid;
+      allow create, update: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

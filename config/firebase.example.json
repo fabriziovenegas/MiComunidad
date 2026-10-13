@@ -1,0 +1,43 @@
+{
+  "android": {
+    "apiKey": "YOUR_CLIENT_API_KEY",
+    "appId": "YOUR_APP_ID",
+    "messagingSenderId": "YOUR_PROJECT_NUMBER",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_STORAGE_BUCKET"
+  },
+  "web": {
+    "apiKey": "YOUR_CLIENT_API_KEY",
+    "appId": "YOUR_APP_ID",
+    "messagingSenderId": "YOUR_PROJECT_NUMBER",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_STORAGE_BUCKET",
+    "authDomain": "YOUR_AUTH_DOMAIN",
+    "measurementId": "YOUR_ANALYTICS_ID"
+  },
+  "ios": {
+    "apiKey": "YOUR_CLIENT_API_KEY",
+    "appId": "YOUR_APP_ID",
+    "messagingSenderId": "YOUR_PROJECT_NUMBER",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_STORAGE_BUCKET",
+    "iosBundleId": "YOUR_BUNDLE_ID"
+  },
+  "macos": {
+    "apiKey": "YOUR_CLIENT_API_KEY",
+    "appId": "YOUR_APP_ID",
+    "messagingSenderId": "YOUR_PROJECT_NUMBER",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_STORAGE_BUCKET",
+    "iosBundleId": "YOUR_BUNDLE_ID"
+  },
+  "windows": {
+    "apiKey": "YOUR_CLIENT_API_KEY",
+    "appId": "YOUR_APP_ID",
+    "messagingSenderId": "YOUR_PROJECT_NUMBER",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_STORAGE_BUCKET",
+    "authDomain": "YOUR_AUTH_DOMAIN",
+    "measurementId": "YOUR_ANALYTICS_ID"
+  }
+}

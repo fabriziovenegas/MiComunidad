@@ -1,0 +1,75 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function approved() { return signedIn() && request.auth.token.approved == true && request.auth.token.role in ['vecino', 'admin']; }
+    function admin() { return approved() && request.auth.token.role == 'admin'; }
+    function image() { return request.resource.contentType.matches('image/(jpeg|png)') && request.resource.size <= 10 * 1024 * 1024; }
+    function document() { return (image() || request.resource.contentType == 'application/pdf') && request.resource.size <= 5 * 1024 * 1024; }
+    function report(reportId) {
+      return firestore.get(/databases/(default)/documents/reports/$(reportId)).data;
+    }
+    function reportExists(reportId) {
+      return firestore.exists(/databases/(default)/documents/reports/$(reportId));
+    }
+    function reportVisibleToMember(reportId) {
+      return report(reportId).moderationStatus == 'aprobado'
+        && report(reportId).status in ['pendiente', 'en_revision', 'en_proceso', 'resuelto'];
+    }
+    function reportOwnedByRequester(reportId) {
+      return report(reportId).createdBy == request.auth.uid;
+    }
+    function reportActiveForContributions(reportId) {
+      return report(reportId).moderationStatus == 'aprobado'
+        && report(reportId).status in ['pendiente', 'en_revision', 'en_proceso'];
+    }
+    function reportAcceptsPhotos(reportId) {
+      return reportExists(reportId) && (
+        reportActiveForContributions(reportId)
+        || (report(reportId).moderationStatus == 'pendiente'
+          && reportOwnedByRequester(reportId))
+      );
+    }
+    function project(projectId) {
+      return firestore.get(/databases/(default)/documents/projects/$(projectId)).data;
+    }
+    function activeProject(projectId) {
+      return project(projectId).isTrashed == false;
+    }
+
+    match /access_requests/{userId}/identity/{fileName} {
+      allow write: if signedIn() && request.auth.uid == userId && request.auth.token.firebase.sign_in_provider == 'anonymous' && document();
+      allow read: if admin() || (signedIn() && request.auth.uid == userId && request.auth.token.firebase.sign_in_provider == 'anonymous');
+    }
+    match /projects/{projectId}/photos/{fileName} {
+      allow read: if admin() || (approved() && activeProject(projectId));
+      allow create: if approved() && activeProject(projectId) && image();
+      allow delete: if admin() || (approved()
+        && activeProject(projectId)
+        && resource.metadata.uploadedBy == request.auth.uid);
+      allow update: if false;
+    }
+    match /reports/{reportId}/photos/{fileName} {
+      allow read: if admin() || (approved() && (
+        reportVisibleToMember(reportId)
+        || reportOwnedByRequester(reportId)
+      ));
+      allow create: if approved() && reportAcceptsPhotos(reportId) && image();
+      allow delete: if admin() || (approved() && resource.metadata.uploadedBy == request.auth.uid);
+      allow update: if false;
+    }
+    match /events/{eventId}/photos/{fileName} {
+      allow read: if approved();
+      allow create: if approved() && image();
+      allow delete: if admin() || (approved() && resource.metadata.uploadedBy == request.auth.uid);
+      allow update: if false;
+    }
+    match /events/{eventId}/minutes/{fileName} {
+      allow read: if approved();
+      allow create: if approved() && document();
+      allow delete: if admin() || (approved() && resource.metadata.uploadedBy == request.auth.uid);
+      allow update: if false;
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}
