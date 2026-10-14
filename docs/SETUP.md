@@ -260,11 +260,24 @@ Sign in with the administrator account you created. Projects, reports and reques
 | Request lookup or moderation cannot connect | Functions are deployed in `southamerica-east1` in the app's project. |
 | A query needs an index | The included indexes are deployed and ready. If Firebase requests another index, review it for your own project. |
 | Approval email does not arrive | Review the notification limitation in step D; creating secrets alone does not fix the missing binding. |
-| Saving report edits is disabled | This is still disabled in the current client; configuring Firebase alone does not enable it. |
+| Report edits cannot be saved | Use the updated app and matching Firestore rules in the same project. Residents may edit their own active reports; approved administrators may also edit their own resolved reports. Reports being deleted are locked. |
 
 For isolated testing, start Firebase emulators with `firebase emulators:start --project YOUR_PROJECT_ID`. Run Flutter with `--dart-define=USE_FIREBASE_EMULATORS=true`, a matching local Firebase configuration, and your chosen flavor. The connection helper uses `10.0.2.2` on Android emulators and `127.0.0.1` on desktop/web; a physical Android phone needs a different reachable host. Emulator data and accounts are separate, so the live administrator account does not automatically exist there. Do not run tests against a real community database.
 
 Further details: [Functions environment settings and secrets](https://firebase.google.com/docs/functions/config-env) and [Storage billing requirements](https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024).
+
+### Report permissions and updates
+
+- Approved residents can edit their own active reports.
+- Approved administrators can edit their own reports, including approved reports marked **Resolved**. For reports submitted by someone else, the administrator opens only the status selector.
+- Approved residents and administrators can comment on approved active or resolved reports. Rejected reports do not accept new comments or content edits.
+- Resolved reports do not accept new photographs; existing files remain read-only in that view.
+- Before permanent deletion, the app marks the completed report `deletionInProgress: true`. This blocks new comments and changes to the report while its files, photo records and comments are removed. The main record is removed last.
+- If deletion fails, the main record remains locked so an administrator can retry safely. Do not manually clear the marker while dependencies may still be pending.
+
+Use the updated app and matching Firestore rules together. Older app versions do not set the deletion marker and cannot complete permanent deletion with these rules. No bulk data migration is required: the marker is added only when an administrator starts deletion.
+
+For local checks using fictional data and a Firestore emulator, see [report checks](../functions/test/REPORT_EDIT_RULES.md). These tests do not deploy rules or access a live database.
 
 ## 4. Run or build a private version
 

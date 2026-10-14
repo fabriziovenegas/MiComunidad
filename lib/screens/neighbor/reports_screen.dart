@@ -2,11 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
+import '../../models/report_edit.dart';
 import '../../services/community_service.dart';
 import '../../services/file_service.dart';
 import '../../widgets/content_detail_sheet.dart';
 import '../../widgets/report_detail_sheet.dart';
 import '../../widgets/report_edit_dialog.dart';
+import '../../widgets/report_status_dialog.dart';
 import '../../utils/text_encoding.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -18,10 +20,11 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   static const _ownReportReadEnabled = true;
-  static const _ownReportEditEnabled = false;
+  static const _ownReportEditEnabled = true;
   static const _permanentReportDeletionEnabled = true;
   String _filter = 'todos';
   String? _deletingReportId;
+  String? _changingStatusReportId;
 
   Future<void> _createReport() async {
     final formKey = GlobalKey<FormState>();
@@ -237,36 +240,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
     ));
   }
 
-  Future<void> _changeStatus(
+  Future<String?> _changeStatus(
       QueryDocumentSnapshot<Map<String, dynamic>> document) async {
-    const allowedStatuses = ['pendiente', 'en_proceso', 'resuelto'];
-    var status = document.data()['status'] as String? ?? 'pendiente';
-    if (!allowedStatuses.contains(status)) status = 'pendiente';
-    final save = await showDialog<bool>(
+    if (_changingStatusReportId != null ||
+        !canAdminChangeReportStatus(widget.user, document.data())) {
+      return null;
+    }
+    _changingStatusReportId = document.id;
+    try {
+      // A dialog can remain open after another status change. Do not reuse its
+      // original snapshot when reopening the status selector.
+      final current = await document.reference.get();
+      final currentData = current.data();
+      if (!mounted) return null;
+      if (currentData == null ||
+          !canAdminChangeReportStatus(widget.user, currentData)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Este reporte ya no permite actualizar su estado.')));
+        return null;
+      }
+      return await showDialog<String>(
         context: context,
-        builder: (context) => StatefulBuilder(
-            builder: (context, setDialogState) => AlertDialog(
-                    title: const Text('Actualizar reporte'),
-                    content: DropdownButtonFormField<String>(
-                        initialValue: status,
-                        decoration: const InputDecoration(labelText: 'Estado'),
-                        items: allowedStatuses
-                            .map((value) => DropdownMenuItem(
-                                value: value, child: Text(_label(value))))
-                            .toList(),
-                        onChanged: (value) =>
-                            setDialogState(() => status = value!)),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text('Cancelar')),
-                      FilledButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text('Guardar'))
-                    ])));
-    if (save == true) {
-      await CommunityService.instance
-          .updateReport(document.id, {'status': status});
+        barrierDismissible: false,
+        builder: (_) => ReportStatusDialog(
+          initialStatus: currentData['status'] as String? ?? 'pendiente',
+          onSave: (status) => CommunityService.instance
+              .updateReport(document.id, {'status': status}),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('No se pudo cargar el estado actual del reporte.')));
+      }
+      return null;
+    } finally {
+      _changingStatusReportId = null;
     }
   }
 
@@ -294,28 +303,53 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   bool _canEditContent(Map<String, dynamic> data) {
-    final authenticatedUserId = FirebaseAuth.instance.currentUser?.uid;
-    final moderationStatus = data['moderationStatus'];
-    return widget.user.isNeighbor &&
-        authenticatedUserId != null &&
-        data['createdBy'] == authenticatedUserId &&
-        (moderationStatus == null ||
-            moderationStatus == 'pendiente' ||
-            moderationStatus == 'aprobado');
+    return canUserEditReportContent(
+      widget.user,
+      data,
+      FirebaseAuth.instance.currentUser?.uid,
+    );
   }
 
-  Future<void> _showEditContent(Map<String, dynamic> data) => showDialog<void>(
-        context: context,
-        builder: (_) => ReportEditDialog(
-          data: data,
-          onSave: _ownReportEditEnabled && _canEditContent(data)
-              ? (draft) => CommunityService.instance.updateReport(
-                    data['documentId'] as String,
-                    draft.toUpdateData(),
-                  )
-              : null,
-        ),
+  bool _canManageReport(Map<String, dynamic> data) => canUserManageReport(
+        widget.user,
+        data,
+        FirebaseAuth.instance.currentUser?.uid,
       );
+
+  Future<void> _showReportActions(
+    QueryDocumentSnapshot<Map<String, dynamic>> document,
+    Map<String, dynamic> data,
+  ) async {
+    if (!_ownReportEditEnabled || !_canManageReport(data)) return;
+    if (reportUsesStatusOnlyDialog(
+        widget.user, data, FirebaseAuth.instance.currentUser?.uid)) {
+      await _changeStatus(document);
+      return;
+    }
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ReportEditDialog(
+        data: data,
+        allowResolvedContentEditing: widget.user.isAdmin,
+        onChangeStatus: canAdminChangeReportStatus(widget.user, data)
+            ? () => _changeStatus(document)
+            : null,
+        onSave: isApprovedReportAuthor(
+                widget.user, data, FirebaseAuth.instance.currentUser?.uid)
+            ? (draft) => CommunityService.instance.updateOwnReportContent(
+                  data['documentId'] as String,
+                  draft,
+                )
+            : null,
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cambios guardados correctamente.')),
+      );
+    }
+  }
 
   Future<void> _openReportDetails(
     QueryDocumentSnapshot<Map<String, dynamic>> document,
@@ -332,19 +366,35 @@ class _ReportsScreenState extends State<ReportsScreen> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) {
-        final footer = canDeletePermanently
-            ? OutlinedButton.icon(
-                onPressed: _deletingReportId == null
-                    ? () => _confirmPermanentReportDeletion(
-                          sheetContext,
-                          document.id,
-                          readableText(data['title']).isEmpty
-                              ? 'Reporte'
-                              : readableText(data['title']),
-                        )
-                    : null,
-                icon: const Icon(Icons.delete_forever_outlined),
-                label: const Text('Eliminar definitivamente'),
+        final canChangeStatus = canAdminChangeReportStatus(widget.user, data);
+        final footer = canChangeStatus || canDeletePermanently
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (canChangeStatus)
+                    OutlinedButton.icon(
+                      onPressed: () => _changeStatus(document),
+                      icon: const Icon(Icons.sync_outlined),
+                      label: const Text('Actualizar estado'),
+                    ),
+                  if (canChangeStatus && canDeletePermanently)
+                    const SizedBox(height: 12),
+                  if (canDeletePermanently)
+                    OutlinedButton.icon(
+                      onPressed: _deletingReportId == null
+                          ? () => _confirmPermanentReportDeletion(
+                                sheetContext,
+                                document.id,
+                                readableText(data['title']).isEmpty
+                                    ? 'Reporte'
+                                    : readableText(data['title']),
+                              )
+                          : null,
+                      icon: const Icon(Icons.delete_forever_outlined),
+                      label: const Text('Eliminar definitivamente'),
+                    ),
+                ],
               )
             : null;
 
@@ -360,6 +410,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 title: data['title'] as String? ?? 'Reporte',
                 user: widget.user,
                 readOnly: status == 'resuelto',
+                allowCommentsWhenReadOnly:
+                    canUserCommentOnReport(widget.user, data),
                 footer: footer,
               );
       },
@@ -532,21 +584,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                 data['priority'] as String? ??
                                                     'media'))),
                                         const Spacer(),
-                                        if (_canEditContent(data))
+                                        if (_canManageReport(data))
                                           IconButton(
-                                              tooltip: 'Editar mi reporte',
+                                              tooltip: _canEditContent(data)
+                                                  ? 'Editar mi reporte'
+                                                  : 'Actualizar reporte',
                                               onPressed: () =>
-                                                  _showEditContent(data),
+                                                  _showReportActions(
+                                                      document, data),
                                               icon: const Icon(
                                                   Icons.edit_outlined)),
-                                        if (widget.user.isAdmin &&
-                                            data['moderationStatus'] ==
-                                                'aprobado')
-                                          IconButton(
-                                              tooltip: 'Cambiar estado',
-                                              onPressed: () =>
-                                                  _changeStatus(document),
-                                              icon: const Icon(Icons.edit))
                                       ]),
                                       Text(
                                           readableText(data['title']).isEmpty

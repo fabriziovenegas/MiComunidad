@@ -1,30 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 
+import '../models/report_edit.dart';
 import '../utils/text_encoding.dart';
 
-class ReportEditDraft {
-  const ReportEditDraft({
-    required this.title,
-    required this.description,
-    required this.location,
-    required this.category,
-    required this.priority,
-  });
-
-  final String title;
-  final String description;
-  final String location;
-  final String category;
-  final String priority;
-
-  Map<String, dynamic> toUpdateData() => {
-        'title': title.trim(),
-        'description': description.trim(),
-        'location': location.trim(),
-        'category': category,
-        'priority': priority,
-      };
-}
+export '../models/report_edit.dart' show ReportEditDraft;
 
 typedef SaveReportEdit = Future<void> Function(ReportEditDraft draft);
 
@@ -33,33 +13,40 @@ class ReportEditDialog extends StatefulWidget {
     super.key,
     required this.data,
     this.onSave,
+    this.onChangeStatus,
+    this.allowResolvedContentEditing = false,
   });
 
   final Map<String, dynamic> data;
   final SaveReportEdit? onSave;
+  final Future<String?> Function()? onChangeStatus;
+  final bool allowResolvedContentEditing;
 
   @override
   State<ReportEditDialog> createState() => _ReportEditDialogState();
 }
 
 class _ReportEditDialogState extends State<ReportEditDialog> {
-  static const _categories = [
-    'seguridad',
-    'obras',
-    'iluminacion',
-    'limpieza',
-    'otro',
-  ];
-  static const _priorities = ['baja', 'media', 'alta'];
+  static const _categories = ReportEditDraft.categories;
+  static const _priorities = ReportEditDraft.priorities;
 
   late String _title;
   late String _description;
   late String _location;
   late String _category;
   late String _priority;
+  late String _status;
   final _formKey = GlobalKey<FormState>();
   bool _saving = false;
+  bool _changingStatus = false;
+  bool get _busy => _saving || _changingStatus;
+  bool get _canEditContent =>
+      widget.onSave != null &&
+      (reportContentIsEditable({...widget.data, 'status': _status}) ||
+          (widget.allowResolvedContentEditing &&
+              reportIsApprovedResolved({...widget.data, 'status': _status})));
   String? _error;
+  String? _statusMessage;
 
   @override
   void initState() {
@@ -67,6 +54,7 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
     _title = readableText(widget.data['title']);
     _description = readableText(widget.data['description']);
     _location = readableText(widget.data['location']);
+    _status = readableText(widget.data['status']);
 
     final category = widget.data['category'] as String?;
     _category = _categories.contains(category) ? category! : 'otro';
@@ -76,67 +64,102 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Editar mi reporte'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    initialValue: _title,
-                    onChanged: (value) => _title = value,
-                    validator: _requiredText,
-                    decoration: const InputDecoration(labelText: 'Título'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    initialValue: _description,
-                    onChanged: (value) => _description = value,
-                    validator: _requiredText,
-                    minLines: 3,
-                    maxLines: 5,
-                    decoration: const InputDecoration(labelText: 'Descripción'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    initialValue: _location,
-                    onChanged: (value) => _location = value,
-                    decoration: const InputDecoration(labelText: 'Ubicación'),
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: _category,
-                    decoration: const InputDecoration(labelText: 'Categoría'),
-                    items: _categories
-                        .map((value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(_categoryLabel(value)),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => _category = value);
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: _priority,
-                    decoration: const InputDecoration(labelText: 'Prioridad'),
-                    items: _priorities
-                        .map((value) => DropdownMenuItem(
-                              value: value,
-                              child: Text(_priorityLabel(value)),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => _priority = value);
-                    },
-                  ),
-                  if (widget.onSave == null) ...[
+  Widget build(BuildContext context) => PopScope(
+        canPop: !_busy,
+        child: AlertDialog(
+          title: Text(
+              _canEditContent ? 'Editar mi reporte' : 'Actualizar reporte'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      enabled: !_busy,
+                      readOnly: !_canEditContent,
+                      initialValue: _title,
+                      onChanged: (value) => _title = value,
+                      validator: ReportEditDraft.validateTitle,
+                      decoration: const InputDecoration(labelText: 'Título'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      enabled: !_busy,
+                      readOnly: !_canEditContent,
+                      initialValue: _description,
+                      onChanged: (value) => _description = value,
+                      validator: ReportEditDraft.validateDescription,
+                      minLines: 3,
+                      maxLines: 5,
+                      decoration:
+                          const InputDecoration(labelText: 'Descripción'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      enabled: !_busy,
+                      readOnly: !_canEditContent,
+                      initialValue: _location,
+                      onChanged: (value) => _location = value,
+                      validator: ReportEditDraft.validateLocation,
+                      decoration: const InputDecoration(labelText: 'Ubicación'),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: _category,
+                      decoration: const InputDecoration(labelText: 'Categoría'),
+                      items: _categories
+                          .map((value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(_categoryLabel(value)),
+                              ))
+                          .toList(),
+                      onChanged: _busy || !_canEditContent
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setState(() => _category = value);
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: _priority,
+                      decoration: const InputDecoration(labelText: 'Prioridad'),
+                      items: _priorities
+                          .map((value) => DropdownMenuItem(
+                                value: value,
+                                child: Text(_priorityLabel(value)),
+                              ))
+                          .toList(),
+                      onChanged: _busy || !_canEditContent
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setState(() => _priority = value);
+                              }
+                            },
+                    ),
                     const SizedBox(height: 18),
+                    if (_statusMessage != null) ...[
+                      Text(_statusMessage!),
+                      const SizedBox(height: 12),
+                    ],
+                    if (widget.onChangeStatus != null) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _busy ? null : _changeStatus,
+                          icon: const Icon(Icons.sync_outlined),
+                          label: Text(_changingStatus
+                              ? 'Actualizando…'
+                              : 'Actualizar estado'),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
@@ -144,57 +167,63 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                         color: Theme.of(context).colorScheme.secondaryContainer,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Row(
+                      child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.lock_outline, size: 20),
-                          SizedBox(width: 10),
+                          Icon(
+                              !_canEditContent
+                                  ? Icons.lock_outline
+                                  : Icons.info_outline,
+                              size: 20),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'El guardado se habilitará cuando existan permisos seguros para editar únicamente los reportes propios.',
+                              !_canEditContent
+                                  ? (_status == 'resuelto'
+                                      ? 'El contenido de un reporte resuelto es de solo lectura. El administrador puede actualizar su estado para reabrirlo.'
+                                      : 'Este reporte no permite editar su contenido.')
+                                  : 'Los cambios serán visibles para quienes tengan acceso a este reporte.',
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ],
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                    if (_error != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          Tooltip(
-            message: widget.onSave == null
-                ? 'Pendiente de habilitar permisos seguros en Firebase'
-                : 'Guardar los cambios',
-            child: FilledButton(
-              onPressed: widget.onSave == null || _saving ? null : _saveChanges,
-              child: Text(_saving ? 'Guardando…' : 'Guardar'),
+          actions: [
+            TextButton(
+              onPressed: _busy ? null : () => Navigator.pop(context),
+              child: const Text('Cancelar'),
             ),
-          ),
-        ],
+            Tooltip(
+              message: !_canEditContent
+                  ? 'Este reporte no permite editar su contenido'
+                  : 'Guardar los cambios',
+              child: FilledButton(
+                onPressed: !_canEditContent || _busy ? null : _saveChanges,
+                child: Text(_saving ? 'Guardando…' : 'Guardar'),
+              ),
+            ),
+          ],
+        ),
       );
 
-  String? _requiredText(String? value) => value == null || value.trim().isEmpty
-      ? 'Este campo es obligatorio.'
-      : null;
-
   Future<void> _saveChanges() async {
-    if (widget.onSave == null || !_formKey.currentState!.validate()) return;
+    if (_busy || !_canEditContent || !_formKey.currentState!.validate()) {
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -207,14 +236,54 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
         category: _category,
         priority: _priority,
       ));
-      if (mounted) Navigator.pop(context);
-    } catch (_) {
+      if (mounted) {
+        setState(() => _saving = false);
+        Navigator.pop(context, true);
+      }
+    } catch (error) {
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = 'No se pudo guardar el reporte.';
+          _error = switch (error) {
+            FirebaseException(code: 'permission-denied') =>
+              'No tienes permiso para guardar este reporte. Puede haber finalizado o faltar habilitar la regla de edición. Tus cambios se conservan en este formulario.',
+            FirebaseException(code: 'not-found') =>
+              'El reporte ya no existe. Tus cambios se conservan en este formulario.',
+            FirebaseException(code: 'unauthenticated') =>
+              'Debes iniciar sesión para guardar. Tus cambios se conservan en este formulario.',
+            _ =>
+              'No se pudo guardar el reporte. Tus cambios se conservan en este formulario; puedes reintentar.',
+          };
         });
       }
+    }
+  }
+
+  Future<void> _changeStatus() async {
+    if (_busy || widget.onChangeStatus == null) return;
+    setState(() {
+      _changingStatus = true;
+      _error = null;
+    });
+    try {
+      final status = await widget.onChangeStatus!();
+      if (mounted && status != null) {
+        setState(() {
+          _status = status;
+          _statusMessage = 'Estado actualizado: ${switch (status) {
+            'resuelto' => 'Resuelto',
+            'en_proceso' => 'En Proceso',
+            _ => 'Por Atender',
+          }}.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error =
+            'No se pudo actualizar el estado. Tus cambios de contenido se conservan en este formulario.');
+      }
+    } finally {
+      if (mounted) setState(() => _changingStatus = false);
     }
   }
 

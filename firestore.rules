@@ -23,6 +23,14 @@ service cloud.firestore {
       return report.moderationStatus == 'aprobado'
         && report.status in ['pendiente', 'en_revision', 'en_proceso'];
     }
+    function reportBeingDeleted(report) {
+      return report.get('deletionInProgress', false) == true;
+    }
+    function reportAcceptsComments(report) {
+      return !reportBeingDeleted(report)
+        && report.moderationStatus == 'aprobado'
+        && report.status in ['pendiente', 'en_revision', 'en_proceso', 'resuelto'];
+    }
     function reportAcceptsPhotos(report) {
       return reportActiveForContributions(report)
         || (report.moderationStatus == 'pendiente'
@@ -34,6 +42,58 @@ service cloud.firestore {
         || report.moderationStatus == 'rechazado'
         || (report.moderationStatus == 'aprobado'
           && report.status == 'rechazado');
+    }
+    function reportContentEditable(report) {
+      return report.moderationStatus in ['pendiente', 'aprobado']
+        && report.status in ['pendiente', 'en_revision', 'en_proceso'];
+    }
+    function reportResolvedContentEditable(report) {
+      return report.moderationStatus == 'aprobado' && report.status == 'resuelto';
+    }
+    function validReportContentEdit() {
+      let edited = request.resource.data;
+      return edited.diff(resource.data).affectedKeys().hasOnly([
+          'title', 'description', 'location', 'category', 'priority', 'updatedAt'
+        ])
+        && edited.title is string
+        && edited.title.matches('.*\\S.*')
+        && edited.title.size() <= 160
+        && edited.description is string
+        && edited.description.matches('[\\s\\S]*\\S[\\s\\S]*')
+        && edited.description.size() <= 4000
+        && edited.location is string
+        && edited.location.size() <= 300
+        && edited.category in ['seguridad', 'obras', 'iluminacion', 'limpieza', 'otro']
+        && edited.priority in ['baja', 'media', 'alta']
+        && edited.updatedAt == request.time;
+    }
+    function validReportStatusUpdate() {
+      return resource.data.moderationStatus == 'aprobado'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'updatedAt'
+        ])
+        && request.resource.data.status in ['pendiente', 'en_proceso', 'resuelto']
+        && request.resource.data.updatedAt == request.time;
+    }
+    function validReportDeletionStart() {
+      return reportCompleted(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'deletionInProgress', 'updatedAt'
+        ])
+        && request.resource.data.deletionInProgress == true
+        && request.resource.data.updatedAt == request.time;
+    }
+    function validReportModerationUpdate() {
+      let edited = request.resource.data;
+      return edited.diff(resource.data).affectedKeys().hasOnly([
+          'moderationStatus', 'moderationReason', 'moderatedBy',
+          'moderatedAt', 'updatedAt'
+        ])
+        && edited.moderationStatus in ['aprobado', 'rechazado']
+        && (edited.moderationReason == null || edited.moderationReason is string)
+        && edited.moderatedBy == request.auth.uid
+        && edited.moderatedAt == request.time
+        && edited.updatedAt == request.time;
     }
     function activeProject(project) {
       return project.isTrashed == false;
@@ -121,15 +181,24 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.status == 'pendiente'
         && request.resource.data.moderationStatus == 'pendiente'
+        && request.resource.data.get('deletionInProgress', false) == false
         && request.resource.data.title is string
         && request.resource.data.description is string;
-      allow update: if admin();
-      allow delete: if admin() && reportCompleted(resource.data);
+      allow update: if (admin() && validReportDeletionStart())
+        || (!reportBeingDeleted(resource.data) && ((admin()
+        && (validReportStatusUpdate() || validReportModerationUpdate()))
+        || (approved()
+        && reportOwnedByRequester(resource.data)
+        && (reportContentEditable(resource.data)
+          || (admin() && reportResolvedContentEditable(resource.data)))
+        && validReportContentEdit())));
+      allow delete: if admin() && reportCompleted(resource.data)
+        && reportBeingDeleted(resource.data);
       match /comments/{commentId} {
         allow read: if admin() || (approved() && get(/databases/$(database)/documents/reports/$(reportId)).data.moderationStatus == 'aprobado');
         allow create: if approved()
           && reportExists(reportId)
-          && reportActiveForContributions(reportById(reportId))
+          && reportAcceptsComments(reportById(reportId))
           && request.resource.data.authorId == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0

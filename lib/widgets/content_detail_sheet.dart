@@ -7,6 +7,7 @@ import '../services/community_service.dart';
 import '../services/file_service.dart';
 import 'image_gallery_screen.dart';
 import '../utils/text_encoding.dart';
+import 'content_comment_composer.dart';
 
 class ContentDetailSheet extends StatefulWidget {
   const ContentDetailSheet(
@@ -17,6 +18,7 @@ class ContentDetailSheet extends StatefulWidget {
       required this.user,
       this.allowMinutes = false,
       this.readOnly = false,
+      this.allowCommentsWhenReadOnly = false,
       this.footer});
   final String collection;
   final String documentId;
@@ -24,21 +26,20 @@ class ContentDetailSheet extends StatefulWidget {
   final AppUser user;
   final bool allowMinutes;
   final bool readOnly;
+  final bool allowCommentsWhenReadOnly;
   final Widget? footer;
   @override
   State<ContentDetailSheet> createState() => _ContentDetailSheetState();
 }
 
 class _ContentDetailSheetState extends State<ContentDetailSheet> {
-  final _comment = TextEditingController();
   bool _busy = false;
   String? _uploadMessage;
   bool _uploadFailed = false;
-  @override
-  void dispose() {
-    _comment.dispose();
-    super.dispose();
-  }
+  bool get _canAddComments =>
+      widget.user.isApproved &&
+      (!widget.readOnly ||
+          (widget.collection == 'reports' && widget.allowCommentsWhenReadOnly));
 
   Future<void> _addImage() async {
     final selected = await FileService.pickImage();
@@ -90,9 +91,10 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
     }
   }
 
-  Future<void> _sendComment() async {
-    final text = _comment.text.trim();
-    if (text.isEmpty) return;
+  Future<void> _sendComment(String text) async {
+    if (_busy || !_canAddComments) {
+      throw StateError('No se puede enviar un comentario en este momento.');
+    }
     setState(() => _busy = true);
     try {
       await CommunityService.instance.addComment(
@@ -100,13 +102,6 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           documentId: widget.documentId,
           text: text,
           authorName: widget.user.nombre);
-      _comment.clear();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('No se pudo guardar el comentario: $error'),
-        ));
-      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -125,7 +120,9 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           Text(widget.title, style: Theme.of(context).textTheme.headlineSmall),
           if (widget.readOnly) ...[
             const SizedBox(height: 8),
-            const Text('Vista de solo lectura.'),
+            Text(_canAddComments
+                ? 'Puedes comentar. Los archivos permanecen en modo de solo lectura.'
+                : 'Vista de solo lectura.'),
           ],
           const SizedBox(height: 16),
           if (!widget.readOnly)
@@ -185,7 +182,7 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
               if (docs.isEmpty) {
                 return Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text(widget.readOnly
+                    child: Text(!_canAddComments
                         ? 'No hay comentarios.'
                         : 'Sé la primera persona en comentar.'));
               }
@@ -214,20 +211,8 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
               }).toList());
             },
           ),
-          if (!widget.readOnly)
-            Row(children: [
-              Expanded(
-                  child: TextField(
-                      controller: _comment,
-                      minLines: 1,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                          hintText: 'Escribe un comentario…'))),
-              IconButton.filled(
-                  tooltip: 'Enviar comentario',
-                  onPressed: _busy ? null : _sendComment,
-                  icon: const Icon(Icons.send))
-            ]),
+          if (_canAddComments)
+            ContentCommentComposer(enabled: !_busy, onSend: _sendComment),
           if (widget.footer != null) ...[
             const SizedBox(height: 24),
             widget.footer!,

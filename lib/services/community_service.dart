@@ -5,8 +5,12 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/access_request.dart';
 import '../models/user_model.dart';
+import '../models/report_edit.dart';
 import 'file_service.dart';
 import 'pending_upload_service.dart';
+import 'report_content_editor.dart';
+import 'report_comment_writer.dart';
+import 'report_deletion_guard.dart';
 
 class PublicCommunitySummary {
   const PublicCommunitySummary({
@@ -57,7 +61,9 @@ class ReportDeletionException implements Exception {
         ? 'No se completó ningún paso de eliminación.'
         : 'Ya se completó: ${completedSteps.join(', ')}.';
     return 'No se pudo eliminar el reporte. Falló el paso: $failedStep. '
-        '$completed El documento principal se conservó. Error: $cause';
+        '$completed El documento principal se conservó. '
+        '${completedSteps.contains('bloqueo de nuevas aportaciones') ? 'Las nuevas aportaciones permanecen bloqueadas hasta reintentar la eliminación. ' : ''}'
+        'Error: $cause';
   }
 
   @override
@@ -360,6 +366,15 @@ class CommunityService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+  Future<void> updateOwnReportContent(String id, ReportEditDraft draft) =>
+      ReportContentEditor(
+        firestore: _db,
+        currentUserId: () {
+          final user = FirebaseAuth.instance.currentUser;
+          return user == null || user.isAnonymous ? null : user.uid;
+        },
+      ).save(id, draft);
+
   Future<void> permanentlyDeleteCompletedReport(String reportId) async {
     if (!_reportsBeingDeleted.add(reportId)) {
       throw const ReportDeletionException(
@@ -419,6 +434,20 @@ class CommunityService {
         );
       }
 
+      try {
+        await ReportDeletionGuard(
+          firestore: _db,
+          currentUserId: () => FirebaseAuth.instance.currentUser?.uid,
+        ).begin(reportId);
+        completedSteps.add('bloqueo de nuevas aportaciones');
+      } catch (error) {
+        throw ReportDeletionException(
+          failedStep: 'bloquear nuevas aportaciones antes de eliminar',
+          completedSteps: [],
+          cause: error,
+        );
+      }
+
       var deletedStorageFiles = 0;
       try {
         final paths = await FileService.listFilesRecursively(
@@ -433,6 +462,7 @@ class CommunityService {
         throw ReportDeletionException(
           failedStep: 'eliminar los archivos de Storage',
           completedSteps: [
+            ...completedSteps,
             if (deletedStorageFiles > 0)
               'archivos de Storage eliminados parcialmente ($deletedStorageFiles)',
           ],
@@ -550,13 +580,28 @@ class CommunityService {
     required String documentId,
     required String text,
     required String authorName,
-  }) =>
-      _db.collection(collection).doc(documentId).collection('comments').add({
-        'text': text.trim(),
-        'authorId': FirebaseAuth.instance.currentUser!.uid,
-        'authorName': authorName,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+  }) async {
+    if (collection == 'reports') {
+      await ReportCommentWriter(
+        firestore: _db,
+        currentUserId: () {
+          final user = FirebaseAuth.instance.currentUser;
+          return user == null || user.isAnonymous ? null : user.uid;
+        },
+      ).add(reportId: documentId, text: text, authorName: authorName);
+      return;
+    }
+    await _db
+        .collection(collection)
+        .doc(documentId)
+        .collection('comments')
+        .add({
+      'text': text.trim(),
+      'authorId': FirebaseAuth.instance.currentUser!.uid,
+      'authorName': authorName,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   Future<bool> addAttachment({
     required String collection,
