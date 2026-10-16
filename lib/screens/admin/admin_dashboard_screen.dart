@@ -1,18 +1,27 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../models/user_model.dart';
 import '../../widgets/community_info_dialog.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
-  const AdminDashboardScreen({super.key, required this.onNavigate});
+  const AdminDashboardScreen({
+    super.key,
+    required this.user,
+    required this.onNavigate,
+    this.firestore,
+  });
+  final AppUser user;
   final ValueChanged<int> onNavigate;
+  final FirebaseFirestore? firestore;
 
   @override
   Widget build(BuildContext context) {
+    final firstName = user.nombre.trim().split(RegExp(r'\s+')).first;
     return ListView(
       padding: const EdgeInsets.all(18),
       children: [
-        Text('Panel de control',
+        Text(firstName.isEmpty ? 'Hola' : 'Hola, $firstName',
             style: Theme.of(context).textTheme.headlineMedium),
         const Text(
             'Gestiona la actividad de la comunidad desde un solo lugar.'),
@@ -28,6 +37,7 @@ class AdminDashboardScreen extends StatelessWidget {
           childAspectRatio: 1.35,
           children: [
             _Count(
+                firestore: firestore,
                 collection: 'accessRequests',
                 label: 'Solicitudes',
                 icon: Icons.person_add,
@@ -35,11 +45,13 @@ class AdminDashboardScreen extends StatelessWidget {
                 whereField: 'status',
                 whereValue: 'pendiente'),
             _Count(
+                firestore: firestore,
                 collection: 'projects',
                 label: 'Proyectos',
                 icon: Icons.construction,
                 onTap: () => onNavigate(1)),
             _Count(
+                firestore: firestore,
                 collection: 'reports',
                 label: 'Reportes',
                 icon: Icons.report,
@@ -47,6 +59,7 @@ class AdminDashboardScreen extends StatelessWidget {
                 whereNotValue: 'rechazado',
                 onTap: () => onNavigate(2)),
             _Count(
+                firestore: firestore,
                 collection: 'events',
                 label: 'Actividades',
                 icon: Icons.event,
@@ -95,6 +108,7 @@ class _Count extends StatelessWidget {
       required this.icon,
       required this.onTap,
       this.whereField,
+      this.firestore,
       this.whereNotField,
       this.whereValue,
       this.whereNotValue});
@@ -102,6 +116,7 @@ class _Count extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
+  final FirebaseFirestore? firestore;
   final String? whereField;
   final String? whereNotField;
   final Object? whereValue;
@@ -109,7 +124,7 @@ class _Count extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Query<Map<String, dynamic>> query =
-        FirebaseFirestore.instance.collection(collection);
+        (firestore ?? FirebaseFirestore.instance).collection(collection);
     if (whereField != null) {
       query = query.where(whereField!, isEqualTo: whereValue);
     }

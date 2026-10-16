@@ -4,7 +4,7 @@ const {getAuth} = require("firebase-admin/auth");
 const {getFirestore, FieldValue, Timestamp} = require("firebase-admin/firestore");
 const {createHash, randomInt} = require("crypto");
 const nodemailer = require("nodemailer");
-const {maskPublicEmail} = require("./privacy");
+const {createProfileIdentity, profileSnapshot} = require("./profile_identity");
 
 initializeApp();
 
@@ -12,6 +12,9 @@ const emailSecrets = ["GMAIL_USER", "GMAIL_PASSWORD"];
 const region = "southamerica-east1";
 const communityName = process.env.COMMUNITY_NAME || "MiComunidad";
 const communityId = process.env.COMMUNITY_ID || "community";
+const profileIdentity = () => createProfileIdentity({
+  firestore: getFirestore(), auth: getAuth(), HttpsError, FieldValue,
+});
 
 exports.getPublicCommunitySummary = onCall({region}, async () => {
   const firestore = getFirestore();
@@ -65,19 +68,7 @@ exports.getAccessRequestStatus = onCall({region}, async (request) => {
   if (!/^\d{8}$/.test(dni)) {
     throw new HttpsError("invalid-argument", "El DNI debe tener 8 dígitos.");
   }
-  const result = await getFirestore().collection("accessRequests").where("dni", "==", dni).orderBy("createdAt", "desc").limit(1).get();
-  if (result.empty) return {request: null};
-  const data = result.docs[0].data();
-  let status = data.status;
-  // Las bajas anteriores pueden conservar solicitudes aprobadas sin perfil.
-  // Esta consulta solo interpreta el estado; no migra documentos históricos.
-  if (status === "aprobado") {
-    const member = data.approvedUserId ?
-      await getFirestore().collection("users").doc(data.approvedUserId).get() :
-      await getFirestore().collection("users").where("dni", "==", dni).limit(1).get();
-    if (data.approvedUserId ? !member.exists : member.empty) status = "retirado";
-  }
-  return {request: {name: data.name, email: maskPublicEmail(data.email), status, rejectionReason: data.rejectionReason || null, createdAt: data.createdAt?.toDate().toISOString() || ""}};
+  return profileIdentity().findRequestStatus(dni);
 });
 
 exports.requestPasswordResetCode = onCall(
@@ -220,21 +211,7 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
     account = await getAuth().createUser({email: data.email, displayName: data.name, emailVerified: false});
     createdAccount = true;
   }
-  const repeatedDni = await getFirestore()
-      .collection("users")
-      .where("dni", "==", data.dni)
-      .limit(1)
-      .get();
-  if (!repeatedDni.empty) {
-    if (createdAccount) {
-      await getAuth().deleteUser(account.uid);
-    }
-    throw new HttpsError(
-        "already-exists",
-        "El DNI ya pertenece a un vecino registrado.",
-    );
-  }
-  await getFirestore().collection("users").doc(account.uid).set({
+  const profile = {
     userId: account.uid,
     nombre: data.name,
     email: data.email,
@@ -249,12 +226,23 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
     joinDate: FieldValue.serverTimestamp(),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
-  }, {merge: true});
+  };
+  try {
+    await profileIdentity().saveApprovedProfile(reference, account.uid, profile, {
+      status: "aprobado", reviewedBy: request.auth.uid,
+      reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    if (createdAccount) {
+      const stored = await getFirestore().collection("users").doc(account.uid).get();
+      if (!stored.exists) await getAuth().deleteUser(account.uid);
+    }
+    throw error;
+  }
   await getAuth().setCustomUserClaims(account.uid, {
     approved: true,
     role: "vecino",
   });
-  await reference.update({status: "aprobado", approvedUserId: account.uid, reviewedBy: request.auth.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()});
   const resetLink = await getAuth().generatePasswordResetLink(data.email);
   await sendEmail({to: data.email, subject: `Tu acceso a ${communityName} fue aprobado`, html: `<p>Hola ${clean(data.name)},</p><p>Tu solicitud fue aprobada.</p><p><a href="${resetLink}">Crea tu contraseña para ingresar</a></p>`});
   return {success: true};
@@ -263,10 +251,7 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
 exports.removeNeighbor = onCall({region}, async (request) => {
   await requireAdmin(request.auth);
   const userId = String(request.data?.userId || "");
-  const profile = await getFirestore().collection("users").doc(userId).get();
-  if (!profile.exists || profile.data().role !== "vecino") {
-    throw new HttpsError("failed-precondition", "Solo se puede retirar a un vecino.");
-  }
+  const profile = await profileIdentity().beginWithdrawal(userId);
   const firestore = getFirestore();
   const requests = firestore.collection("accessRequests");
   const linked = await requests.where("approvedUserId", "==", userId).get();
@@ -275,7 +260,10 @@ exports.removeNeighbor = onCall({region}, async (request) => {
   if (dni) {
     const legacy = await requests.where("dni", "==", dni).get();
     for (const doc of legacy.docs) {
-      if (!doc.data().approvedUserId && doc.data().status === "aprobado") {
+      const original = doc.data();
+      const sameEmail = !original.email || !profile.data().email ||
+        original.email.toLowerCase() === profile.data().email.toLowerCase();
+      if (!original.approvedUserId && original.status === "aprobado" && sameEmail) {
         associated.set(doc.id, doc);
       }
     }
@@ -293,6 +281,8 @@ exports.removeNeighbor = onCall({region}, async (request) => {
       const batch = firestore.batch();
       for (const doc of approvedRequests.slice(offset, offset + 400)) {
         batch.update(doc.ref, {
+          lookupDni: profile.data().dni || doc.data().lookupDni || doc.data().dni || "",
+          currentProfile: profileSnapshot(profile.data(), doc.data()),
           status: "retirado",
           removedUserId: userId,
           removedBy: request.auth.uid,
@@ -310,7 +300,7 @@ exports.removeNeighbor = onCall({region}, async (request) => {
     );
   }
   // Conservamos el perfil hasta registrar las solicitudes, para poder reintentar.
-  await profile.ref.delete();
+  await profileIdentity().deleteMemberProfile(userId, profile.data());
   return {success: true};
 });
 
@@ -354,38 +344,5 @@ exports.updateOwnProfile = onCall({region}, async (request) => {
   if (!request.auth?.uid) {
     throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
   }
-  const nombre = clean(request.data?.nombre).trim();
-  const dni = String(request.data?.dni || "").trim();
-  const phone = String(request.data?.phone || "").trim();
-  const email = String(request.data?.email || "").trim().toLowerCase();
-  if (nombre.length < 3 || !/^\d{8}$/.test(dni) ||
-      !/^\d{9}$/.test(phone) || !/^\S+@\S+\.\S+$/.test(email)) {
-    throw new HttpsError("invalid-argument", "Revisa los datos del perfil.");
-  }
-  const reference = getFirestore().collection("users").doc(request.auth.uid);
-  const profile = await reference.get();
-  if (!profile.exists || profile.data().approvalStatus !== "aprobado") {
-    throw new HttpsError("permission-denied", "El perfil no está habilitado.");
-  }
-  const repeatedDni = await getFirestore()
-      .collection("users").where("dni", "==", dni).get();
-  if (repeatedDni.docs.some((document) => document.id !== request.auth.uid)) {
-    throw new HttpsError("already-exists", "El DNI ya está registrado.");
-  }
-  try {
-    await getAuth().updateUser(request.auth.uid, {email, displayName: nombre});
-  } catch (error) {
-    if (error.code === "auth/email-already-exists") {
-      throw new HttpsError("already-exists", "El correo ya está registrado.");
-    }
-    throw error;
-  }
-  await reference.update({
-    nombre,
-    dni,
-    phone,
-    email,
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-  return {success: true};
+  return profileIdentity().updateOwnProfile(request.auth.uid, request.data || {});
 });

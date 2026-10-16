@@ -1,44 +1,23 @@
-// All identities and request counts in these fixtures are fictional.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const {fixture: identityFixture} = require('./helpers/identity_fixture.cjs');
+const {createProfileIdentity, profileSnapshot} = require('../profile_identity');
 
 const source = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8');
 
 function fixture({requests = [], members = [], failBatch = false, missingAuth = false} = {}) {
-  const data = {users: new Map(members), accessRequests: new Map(requests)};
+  const base = identityFixture({members, requests});
+  const {data} = base;
   const batchSizes = [];
   let authDeletes = 0;
-  function doc(collection, id) {
-    return {
-      id,
-      ref: {collection, id, delete: async () => data[collection].delete(id)},
-      exists: data[collection].has(id),
-      data: () => data[collection].get(id),
-    };
-  }
-  function query(collection, filters = [], limit = Infinity) {
-    return {
-      doc: (id) => ({get: async () => doc(collection, id)}),
-      where: (field, operator, value) => query(collection, [...filters, [field, value]], limit),
-      orderBy: () => query(collection, filters, limit),
-      limit: (value) => query(collection, filters, value),
-      get: async () => {
-        const rows = [...data[collection]].filter(([, row]) =>
-          filters.every(([field, value]) => row[field] === value));
-        if (collection === 'accessRequests') rows.sort((a, b) => (b[1].date || 0) - (a[1].date || 0));
-        const docs = rows.slice(0, limit).map(([id]) => doc(collection, id));
-        return {docs, empty: docs.length === 0};
-      },
-    };
-  }
   class HttpsError extends Error {
     constructor(code, message) { super(message); this.code = code; }
   }
   const context = {
-    maskPublicEmail: require('../privacy').maskPublicEmail,
+    profileSnapshot,
     exports: {}, region: 'local', HttpsError,
     onCall: (_, callback) => callback,
     requireAdmin: async (auth) => { if (auth?.uid !== 'admin') throw new HttpsError('permission-denied', 'admin only'); },
@@ -49,7 +28,7 @@ function fixture({requests = [], members = [], failBatch = false, missingAuth = 
       if (missingAuth) { const error = new Error('missing'); error.code = 'auth/user-not-found'; throw error; }
     }}),
     getFirestore: () => ({
-      collection: (name) => query(name),
+      ...base.db,
       batch: () => {
         const updates = [];
         return {
@@ -63,6 +42,8 @@ function fixture({requests = [], members = [], failBatch = false, missingAuth = 
       },
     }),
   };
+  context.profileIdentity = () => createProfileIdentity({firestore: context.getFirestore(),
+    auth: context.getAuth(), HttpsError, FieldValue: context.FieldValue});
   for (const [name, next] of [['removeNeighbor', 'setUserRole'], ['getAccessRequestStatus', 'requestPasswordResetCode']]) {
     const start = source.indexOf(`exports.${name} =`);
     const end = source.indexOf(`exports.${next} =`, start);
@@ -127,4 +108,24 @@ test('consultar por DNI no devuelve el correo completo ni cambia el dato almacen
     assert.equal(f.data.accessRequests.get('r').email, 'holaadios@example.com');
     assert.ok(!JSON.stringify(result).includes('holaadios@example.com'));
   }
+});
+
+test('la baja conserva el DNI corregido y datos actuales sin sobrescribir la solicitud original', async () => {
+  const f = fixture({members: [['u', {role: 'vecino', dni: '00000002', nombre: 'Updated Demo',
+    email: 'updated@example.com', phone: '000000002', address: 'Current demo address',
+    timeLivingHere: '5 a 10 años', reason: 'Corrected demo reason'}]], requests: [['r', {
+    approvedUserId: 'u', status: 'aprobado', dni: '00000001', name: 'Original Demo',
+    email: 'original@example.com', reason: 'Original reason',
+  }]]});
+  await f.context.exports.removeNeighbor({auth: {uid: 'admin'}, data: {userId: 'u'}});
+  assert.equal(f.data.users.has('u'), false);
+  const stored = f.data.accessRequests.get('r');
+  assert.equal(stored.dni, '00000001');
+  assert.equal(stored.reason, 'Original reason');
+  assert.equal(stored.currentProfile.reason, 'Corrected demo reason');
+  assert.equal((await f.context.exports.getAccessRequestStatus({data: {dni: '00000001'}})).request, null);
+  const current = (await f.context.exports.getAccessRequestStatus({data: {dni: '00000002'}})).request;
+  assert.equal(current.status, 'retirado');
+  assert.equal(current.name, 'Updated Demo');
+  assert.equal(current.email, 'up****@***.com');
 });

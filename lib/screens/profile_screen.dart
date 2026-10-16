@@ -1,12 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../models/user_model.dart';
 import '../services/community_service.dart';
 
+typedef ProfileSaver = Future<void> Function({
+  required String nombre,
+  required String dni,
+  required String phone,
+  required String email,
+  required String address,
+  required String timeLivingHere,
+  required String reason,
+});
+
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, required this.user});
+  const ProfileScreen({super.key, required this.user, this.onSave});
   final AppUser user;
+  final ProfileSaver? onSave;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -50,7 +62,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      await CommunityService.instance.updateOwnProfile(
+      await (widget.onSave ?? CommunityService.instance.updateOwnProfile)(
         nombre: _name.text,
         dni: _dni.text,
         phone: _phone.text,
@@ -65,8 +77,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     } catch (error) {
       if (mounted) {
+        final message = error is FirebaseFunctionsException
+            ? (error.message ??
+                'No se pudo guardar el perfil. Inténtalo de nuevo.')
+            : 'No se pudo guardar el perfil. Inténtalo de nuevo.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo actualizar el perfil: $error')),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {

@@ -681,17 +681,9 @@ class CommunityService {
       'dni': dni.trim(),
       'phone': phone.trim(),
       'email': email.trim().toLowerCase(),
-    });
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      throw StateError('No hay un usuario autenticado.');
-    }
-    await _db.collection('users').doc(user.uid).update({
       'address': address.trim(),
       'timeLivingHere': timeLivingHere.trim(),
       'reason': reason.trim(),
-      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 

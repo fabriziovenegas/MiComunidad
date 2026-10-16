@@ -268,6 +268,10 @@ Further details: [Functions environment settings and secrets](https://firebase.g
 
 ### Report permissions and updates
 
+Profile corrections and DNI lookup use the same linked account while preserving
+the original application. Use the updated backend and app together; see
+[profile updates and local checks](PROFILE_IDENTITY.md).
+
 - Approved residents can edit their own active reports.
 - Approved administrators can edit their own reports, including approved reports marked **Resolved**. For reports submitted by someone else, the administrator opens only the status selector.
 - Approved residents and administrators can comment on approved active or resolved reports. Rejected reports do not accept new comments or content edits.

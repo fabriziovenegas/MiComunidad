@@ -75,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Widget> get _pages => widget.user.isAdmin
       ? [
           AdminDashboardScreen(
+              user: widget.user,
               onNavigate: (value) => setState(() => _index = value)),
           ProjectsScreen(user: widget.user),
           ReportsScreen(user: widget.user),

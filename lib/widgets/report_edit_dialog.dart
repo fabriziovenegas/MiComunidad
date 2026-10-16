@@ -182,7 +182,7 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                                   ? (_status == 'resuelto'
                                       ? 'El contenido de un reporte resuelto es de solo lectura. El administrador puede actualizar su estado para reabrirlo.'
                                       : 'Este reporte no permite editar su contenido.')
-                                  : 'Los cambios serán visibles para quienes tengan acceso a este reporte.',
+                                  : 'Los cambios serán visibles al guardar.',
                             ),
                           ),
                         ],
