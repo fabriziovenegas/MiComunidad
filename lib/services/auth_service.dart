@@ -129,8 +129,10 @@ class AuthService {
         uploadedBy: anonymous.uid,
       );
       final document = _db.collection('accessRequests').doc();
-      await document.set({
-        'applicantUid': anonymous.uid,
+      final result = await _functions
+          .httpsCallable('submitAccessRequest')
+          .call<Map<String, dynamic>>({
+        'requestId': document.id,
         'name': name.trim(),
         'dni': dni.trim(),
         'phone': phone.trim(),
@@ -138,14 +140,16 @@ class AuthService {
         'address': address.trim(),
         'timeLivingHere': timeLivingHere,
         'reason': reason.trim(),
-        'identityDocumentUrl': uploaded.url,
         'identityDocumentPath': uploaded.storagePath,
-        'status': 'pendiente',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
       });
+      if (result.data['requestId'] != document.id) {
+        throw const AuthFlowException(
+            'No pudimos confirmar la solicitud. Consulta su estado antes de reenviarla.');
+      }
       await _auth.signOut();
       return document.id;
+    } on FirebaseFunctionsException catch (error) {
+      throw _functionsError(error);
     } on firebase.FirebaseAuthException catch (error) {
       throw _authError(error);
     } on FirebaseException catch (error) {

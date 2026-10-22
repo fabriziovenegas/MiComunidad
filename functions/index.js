@@ -1,10 +1,12 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
+const {getStorage, getDownloadURL} = require("firebase-admin/storage");
 const {getFirestore, FieldValue, Timestamp} = require("firebase-admin/firestore");
 const {createHash, randomInt} = require("crypto");
 const nodemailer = require("nodemailer");
 const {createProfileIdentity, profileSnapshot} = require("./profile_identity");
+const {createAccessRequestSubmission} = require("./access_request_submission");
 
 initializeApp();
 
@@ -62,6 +64,10 @@ async function sendEmail({to, subject, html}) {
   await transport.sendMail({from: `"${clean(communityName)}" <${user}>`, to, subject, html});
   return true;
 }
+
+exports.submitAccessRequest = onCall({region}, (request) => createAccessRequestSubmission({
+  identity: profileIdentity(), storage: getStorage, getDownloadURL, HttpsError,
+})(request));
 
 exports.getAccessRequestStatus = onCall({region}, async (request) => {
   const dni = String(request.data?.dni || "").trim();

@@ -130,16 +130,8 @@ service cloud.firestore {
     }
 
     match /accessRequests/{requestId} {
-      allow create: if signedIn()
-        && request.auth.token.firebase.sign_in_provider == 'anonymous'
-        && request.resource.data.applicantUid == request.auth.uid
-        && request.resource.data.status == 'pendiente'
-        && request.resource.data.dni is string
-        && request.resource.data.dni.size() == 8
-        && request.resource.data.phone is string
-        && request.resource.data.phone.size() == 9
-        && request.resource.data.email is string
-        && request.resource.data.identityDocumentUrl is string;
+      // The callable validates the attachment and reserves the DNI atomically.
+      allow create: if false;
 
       allow read: if admin();
       allow update: if false;

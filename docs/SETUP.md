@@ -266,6 +266,13 @@ For isolated testing, start Firebase emulators with `firebase emulators:start --
 
 Further details: [Functions environment settings and secrets](https://firebase.google.com/docs/functions/config-env) and [Storage billing requirements](https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024).
 
+### Access requests
+
+New access requests require the `submitAccessRequest` callable and matching
+Firestore rules. Coordinate the updated app with deployment: older APKs cannot
+create requests directly under the new rules. See
+[access requests and duplicate DNI protection](ACCESS_REQUESTS.md).
+
 ### Report permissions and updates
 
 Profile corrections and DNI lookup use the same linked account while preserving

@@ -22,6 +22,11 @@ reason and original application date. It does not return the phone, address,
 profile snapshot, document link or UID. This change does not add identity
 verification to the existing DNI lookup.
 
+A linked approved account with its current DNI takes precedence over a newer
+rejected or pending duplicate. Other cases retain the latest-application behavior.
+New requests are saved atomically through a server callable; see
+[access requests and duplicate protection](ACCESS_REQUESTS.md).
+
 After a correction, the former DNI no longer locates that same account. It may
 still locate an independent application for another person. Pending and rejected
 applications use their originally submitted DNI and contact information.
@@ -41,6 +46,11 @@ profile corrections from assigning the same DNI to two accounts. These keys use
 hashed document IDs; hashing is not a substitute for access control. The existing
 default-deny Firestore rule blocks client access. Keys are released after a DNI
 correction or completed withdrawal.
+
+Pending applications also reserve this document, storing their anonymous
+`userId` and `requestId`. Approval replaces that reservation with the approved
+account's `userId`. Older rejected, withdrawn or deleted applications do not
+permanently hold a reservation.
 
 Authentication is a separate service and cannot join a Firestore transaction.
 Name/email changes first update Authentication. If the Firestore commit fails,

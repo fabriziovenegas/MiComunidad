@@ -73,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text(
-          'Enlace enviado. Revisa tu correo para crear una nueva contraseña.',
+          'Si el correo está asociado a una cuenta, recibirás un enlace para restablecer tu contraseña.',
         ),
       ));
     } catch (error) {

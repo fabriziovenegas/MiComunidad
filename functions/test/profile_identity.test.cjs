@@ -39,7 +39,7 @@ test('all seven fields save together; original request and ownership remain unch
   for (const field of ['dni', 'phone', 'address', 'reason', 'approvedUserId', 'currentProfile']) {
     assert.equal(Object.hasOwn(result, field), false);
   }
-  assert.deepEqual(Object.keys(f.data), ['users', 'accessRequests', 'memberDniKeys']);
+  assert.deepEqual(Object.keys(f.data), ['users', 'accessRequests', 'memberDniKeys', 'memberEmailKeys']);
 });
 
 test('a second DNI correction does not leave a working old lookup', async () => {

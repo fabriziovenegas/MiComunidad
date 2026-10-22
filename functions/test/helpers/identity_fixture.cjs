@@ -5,7 +5,7 @@ class HttpsError extends Error {
 }
 
 function fixture({members = [], requests = [], keys = [], authError = null, failWrite = false} = {}) {
-  const data = {users: new Map(members), accessRequests: new Map(requests), memberDniKeys: new Map(keys)};
+  const data = {users: new Map(members), accessRequests: new Map(requests), memberDniKeys: new Map(keys), memberEmailKeys: new Map()};
   const authWrites = [];
   let transactionTail = Promise.resolve();
   const snapshot = (collection, id) => {
@@ -56,7 +56,11 @@ function fixture({members = [], requests = [], keys = [], authError = null, fail
       return run;
     },
   };
-  const auth = {updateUser: async (uid, values) => {
+  const auth = {getUserByEmail: async (email) => {
+    const match = [...data.users].find(([, profile]) => String(profile.email || '').trim().toLowerCase() === email);
+    if (match) return {uid: match[0]};
+    throw Object.assign(new Error('Fictional account absent'), {code: 'auth/user-not-found'});
+  }, updateUser: async (uid, values) => {
     if (authError) throw Object.assign(new Error('Simulated Auth failure'), {code: authError});
     authWrites.push({uid, ...values});
   }};

@@ -24,6 +24,8 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
   const requests = db.collection("accessRequests");
   // Server-only uniqueness records. The existing default-deny rules protect them.
   const keyFor = (dni) => db.collection("memberDniKeys").doc(createHash("sha256").update(dni).digest("hex"));
+  const emailValue = (email) => String(email || "").trim().toLowerCase();
+  const emailKeyFor = (email) => db.collection("memberEmailKeys").doc(createHash("sha256").update(emailValue(email)).digest("hex"));
   const read = (transaction, reference) => transaction ? transaction.get(reference) : reference.get();
 
   async function memberFor(data, transaction = null) {
@@ -52,26 +54,33 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
         if (document.data().status === "aprobado") candidates.set(document.id, document);
       }
     }
+    let latest = null;
     for (const document of newest(candidates.values())) {
       const data = document.data();
       let status = data.status;
       let contact = data;
       let lookupDni = data.dni;
+      let activeApproval = false;
       if (status === "aprobado" || status === "retirado") {
         const member = status === "aprobado" ? await memberFor(data) : null;
         contact = member ? profileSnapshot(member.data(), data.currentProfile || data) : (data.currentProfile || data);
         lookupDni = member?.data().dni || data.lookupDni || contact.dni || data.dni;
         if (status === "aprobado" && !member) status = "retirado";
+        activeApproval = status === "aprobado" && member?.data().approvalStatus === "aprobado" &&
+          ["vecino", "admin"].includes(member.data().role);
       }
       // A historical DNI must not keep locating an account after a correction.
       if (lookupDni !== dni) continue;
-      return {request: {
+      const result = {request: {
         name: contact.name || "", email: maskPublicEmail(contact.email), status,
         rejectionReason: data.rejectionReason || null,
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || "",
       }};
+      // A newer rejected duplicate must not hide the linked approved account.
+      if (activeApproval) return result;
+      if (!latest) latest = result;
     }
-    return {request: null};
+    return latest || {request: null};
   }
 
   async function assertDniAvailable(transaction, uid, dni, ignoredRequestId = null) {
@@ -103,6 +112,33 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
           throw new HttpsError("already-exists", "El DNI ya pertenece a otra cuenta.");
         }
       }
+    }
+  }
+
+  async function assertEmailAvailable(transaction, uid, email, ignoredRequestId = null) {
+    email = emailValue(email);
+    const conflict = () => new HttpsError("already-exists",
+        "Ya existe una solicitud pendiente o una cuenta registrada con este correo. Consulta tu solicitud o recupera tu contraseña si ya tienes una cuenta.");
+    // Reading the shared key serializes registrations, approvals and corrections.
+    // Check current data rather than letting rejected/withdrawn history reserve it.
+    const key = await transaction.get(emailKeyFor(email));
+    if (key.exists && key.data().userId !== uid) {
+      const owner = await transaction.get(users.doc(key.data().userId));
+      if (owner.exists && emailValue(owner.data().email) === email) throw conflict();
+    }
+    const members = await transaction.get(users.where("email", "==", email));
+    if (members.docs.some((member) => member.id !== uid)) throw conflict();
+    // Also cover older pending requests without keys, including mixed-case email.
+    const pending = await transaction.get(requests.where("status", "==", "pendiente"));
+    if (pending.docs.some((document) => document.id !== ignoredRequestId &&
+        emailValue(document.data().email) === email)) throw conflict();
+    // Authentication handles case-insensitive existing accounts, even legacy ones
+    // without a Firestore profile. No Authentication data is changed here.
+    try {
+      const account = await auth.getUserByEmail(email);
+      if (account.uid !== uid) throw conflict();
+    } catch (error) {
+      if (error.code !== "auth/user-not-found") throw error;
     }
   }
 
@@ -153,6 +189,56 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
     }
   }
 
+  async function submitAccessRequest(applicantUid, data) {
+    const requestId = String(data.requestId || "");
+    if (!applicantUid || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) {
+      throw new HttpsError("invalid-argument", "La solicitud no es válida. Inténtalo nuevamente.");
+    }
+    const profile = Object.fromEntries(fields.map((key) => [key,
+      String(data[key === "nombre" ? "name" : key] ?? "").trim(),
+    ]));
+    profile.email = profile.email.toLowerCase();
+    if (!profile.nombre || profile.nombre.length > 160 ||
+        !/^\d{8}$/.test(profile.dni) || !/^\d{9}$/.test(profile.phone) ||
+        !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(profile.email) || profile.email.length > 320) {
+      throw new HttpsError("invalid-argument", "Revisa el nombre, DNI, teléfono y correo de la solicitud.");
+    }
+    for (const [key, limit] of [["address", 300], ["timeLivingHere", 100], ["reason", 1000]]) {
+      if (!profile[key] || profile[key].length > limit) {
+        throw new HttpsError("invalid-argument", "Revisa los datos de la comunidad y su longitud.");
+      }
+    }
+    const identityDocumentPath = String(data.identityDocumentPath || "");
+    const identityDocumentUrl = String(data.identityDocumentUrl || "");
+    if (!identityDocumentPath || !identityDocumentUrl || identityDocumentUrl.length > 4096) {
+      throw new HttpsError("invalid-argument", "Adjunta tu documento de identidad.");
+    }
+    const submissionFingerprint = createHash("sha256").update(JSON.stringify([
+      applicantUid, ...fields.map((key) => profile[key]), identityDocumentPath,
+    ])).digest("hex");
+    const reference = requests.doc(requestId);
+    await db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      if (existing.exists) {
+        if (existing.data().applicantUid === applicantUid &&
+            existing.data().submissionFingerprint === submissionFingerprint) return;
+        throw new HttpsError("already-exists", "Esta solicitud ya fue registrada.");
+      }
+      await assertDniAvailable(transaction, applicantUid, profile.dni);
+      await assertEmailAvailable(transaction, applicantUid, profile.email);
+      transaction.set(reference, {
+        applicantUid, ...profileSnapshot(profile), identityDocumentPath, identityDocumentUrl,
+        status: "pendiente", submissionFingerprint,
+        createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      });
+      // The shared DNI document serializes submissions, approvals and profile
+      // corrections. Keeping userId as a UID also supports older backend handlers.
+      transaction.set(keyFor(profile.dni), {userId: applicantUid, requestId});
+      transaction.set(emailKeyFor(profile.email), {userId: applicantUid, requestId});
+    });
+    return {requestId};
+  }
+
   async function updateOwnProfile(uid, data) {
     const reference = users.doc(uid);
     const before = await reference.get();
@@ -167,6 +253,7 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
         throw new HttpsError("aborted", "El perfil cambió. Vuelve a cargarlo e inténtalo de nuevo.");
       }
       await assertDniAvailable(transaction, uid, next.dni);
+      await assertEmailAvailable(transaction, uid, next.email);
     });
     let authChanged = false;
     try {
@@ -181,11 +268,17 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
           throw new HttpsError("aborted", "El perfil cambió. Vuelve a cargarlo e inténtalo de nuevo.");
         }
         await assertDniAvailable(transaction, uid, next.dni);
+        await assertEmailAvailable(transaction, uid, next.email);
         const application = await approvedRequest(transaction, uid, previous);
         const oldKey = previous.dni ? await transaction.get(keyFor(previous.dni)) : null;
+        const oldEmailKey = previous.email ? await transaction.get(emailKeyFor(previous.email)) : null;
         // All seven fields and the lookup snapshot commit together in Firestore.
         transaction.update(reference, {...next, updatedAt: FieldValue.serverTimestamp()});
         transaction.set(keyFor(next.dni), {userId: uid});
+        transaction.set(emailKeyFor(next.email), {userId: uid});
+        if (oldEmailKey?.exists && oldEmailKey.data().userId === uid && emailValue(previous.email) !== next.email) {
+          transaction.delete(oldEmailKey.ref);
+        }
         if (oldKey?.exists && oldKey.data().userId === uid && previous.dni !== next.dni) {
           transaction.delete(oldKey.ref);
         }
@@ -229,8 +322,10 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
       }
       if (member.exists) throw new HttpsError("already-exists", "La cuenta ya tiene un perfil.");
       await assertDniAvailable(transaction, uid, profile.dni, reference.id);
+      await assertEmailAvailable(transaction, uid, profile.email, reference.id);
       transaction.set(users.doc(uid), profile);
       transaction.set(keyFor(profile.dni), {userId: uid});
+      transaction.set(emailKeyFor(profile.email), {userId: uid});
       transaction.update(reference, {...review, approvedUserId: uid, lookupDni: profile.dni,
         currentProfile: profileSnapshot(profile)});
     });
@@ -239,8 +334,10 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
   async function deleteMemberProfile(uid, profile) {
     await db.runTransaction(async (transaction) => {
       const key = profile.dni ? await transaction.get(keyFor(profile.dni)) : null;
+      const emailKey = profile.email ? await transaction.get(emailKeyFor(profile.email)) : null;
       transaction.delete(users.doc(uid));
       if (key?.exists && key.data().userId === uid) transaction.delete(key.ref);
+      if (emailKey?.exists && emailKey.data().userId === uid) transaction.delete(emailKey.ref);
     });
   }
 
@@ -257,7 +354,7 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
     });
   }
 
-  return {findRequestStatus, updateOwnProfile, saveApprovedProfile, deleteMemberProfile, beginWithdrawal};
+  return {findRequestStatus, submitAccessRequest, updateOwnProfile, saveApprovedProfile, deleteMemberProfile, beginWithdrawal};
 }
 
 module.exports = {createProfileIdentity, profileSnapshot};

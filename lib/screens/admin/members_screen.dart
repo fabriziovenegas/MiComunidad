@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/access_request.dart';
 import '../../models/user_model.dart';
 import '../../services/community_service.dart';
+import '../../services/access_request_review.dart';
 
 class MembersScreen extends StatefulWidget {
   const MembersScreen({super.key, required this.user});
@@ -68,22 +69,16 @@ class _MembersScreenState extends State<MembersScreen>
     }
     setState(() => _busyId = request.id);
     try {
-      await CommunityService.instance.reviewAccessRequest(
-          requestId: request.id, approve: approve, reason: reason);
-      if (approve) {
-        try {
-          await FirebaseAuth.instance
-              .sendPasswordResetEmail(email: request.email);
-        } on FirebaseAuthException {
-          // La aprobación ya se guardó. El administrador puede reenviar el
-          // enlace desde la pantalla de inicio de sesión si el correo falló.
-        }
-      }
+      final result = await reviewAccessRequestWithEmail(
+        approve: approve,
+        review: () => CommunityService.instance.reviewAccessRequest(
+            requestId: request.id, approve: approve, reason: reason),
+        sendEmail: () =>
+            FirebaseAuth.instance.sendPasswordResetEmail(email: request.email),
+      );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(approve
-                ? 'Vecino aprobado y cuenta creada.'
-                : 'Solicitud rechazada.')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(result.message)));
       }
     } catch (error) {
       if (mounted) {
