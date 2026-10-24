@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
 import '../../services/file_service.dart';
+import '../../widgets/upload_picker.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -30,13 +31,10 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Future<void> _pickDocument() async {
-    try {
-      final selected = await FileService.pickIdentityDocument();
-      if (selected != null && mounted) {
-        setState(() => _identityDocument = selected);
-      }
-    } catch (error) {
-      _message(_friendlyError(error), error: true);
+    final selected =
+        await pickUploadWithFeedback(context, FileService.pickIdentityDocument);
+    if (selected != null && mounted) {
+      setState(() => _identityDocument = selected);
     }
   }
 

@@ -7,6 +7,7 @@ const {createHash, randomInt} = require("crypto");
 const nodemailer = require("nodemailer");
 const {createProfileIdentity, profileSnapshot} = require("./profile_identity");
 const {createAccessRequestSubmission} = require("./access_request_submission");
+const {createReportAuthorNameLookup} = require("./report_author_name");
 
 initializeApp();
 
@@ -76,6 +77,10 @@ exports.getAccessRequestStatus = onCall({region}, async (request) => {
   }
   return profileIdentity().findRequestStatus(dni);
 });
+
+exports.getReportAuthorName = onCall({region}, (request) => createReportAuthorNameLookup({
+  firestore: getFirestore(), HttpsError,
+})(request));
 
 exports.requestPasswordResetCode = onCall(
     {region, secrets: emailSecrets},
@@ -323,27 +328,56 @@ exports.setUserRole = onCall({region}, async (request) => {
         "No puedes cambiar tu propio rol. Otro administrador debe hacerlo.",
     );
   }
-  const reference = getFirestore().collection("users").doc(userId);
-  const profile = await reference.get();
-  if (!profile.exists || profile.data().approvalStatus !== "aprobado") {
-    throw new HttpsError("not-found", "El usuario aprobado no existe.");
-  }
-  if (profile.data().role === "admin" && role === "vecino") {
-    const admins = await getFirestore()
-        .collection("users")
-        .where("role", "==", "admin")
-        .where("approvalStatus", "==", "aprobado")
-        .get();
-    if (admins.size <= 1) {
-      throw new HttpsError(
-          "failed-precondition",
-          "Debe quedar al menos un administrador activo.",
-      );
+  const firestore = getFirestore();
+  const users = firestore.collection("users");
+  const reference = users.doc(userId);
+  await firestore.runTransaction(async (transaction) => {
+    // Both profiles must be checked again on every transaction retry. Read in a
+    // consistent order when two administrators try to demote each other.
+    const profiles = new Map();
+    for (const uid of [request.auth.uid, userId].sort()) {
+      profiles.set(uid, await transaction.get(users.doc(uid)));
     }
+    const actor = profiles.get(request.auth.uid);
+    if (!actor.exists || actor.data().role !== "admin" ||
+        actor.data().approvalStatus !== "aprobado" || actor.data().profileWithdrawalInProgress === true) {
+      throw new HttpsError("permission-denied", "Solo un administrador puede realizar esta acción.");
+    }
+    const profile = profiles.get(userId);
+    if (!profile.exists || profile.data().approvalStatus !== "aprobado") {
+      throw new HttpsError("not-found", "El usuario aprobado no existe.");
+    }
+    if (profile.data().profileWithdrawalInProgress === true) {
+      throw new HttpsError("failed-precondition", "La cuenta se está retirando. Actualiza la lista.");
+    }
+    if (profile.data().role === "admin" && role === "vecino") {
+      const admins = await transaction.get(users.where("role", "==", "admin")
+          .where("approvalStatus", "==", "aprobado"));
+      if (admins.docs.length <= 1) {
+        throw new HttpsError("failed-precondition", "Debe quedar al menos un administrador activo.");
+      }
+    }
+    transaction.update(reference, {role, updatedAt: FieldValue.serverTimestamp()});
+  });
+  // Authentication cannot participate in a Firestore transaction. Synchronize
+  // only after commit, using the canonical role if another change superseded it.
+  // Never roll a committed role back after a claims error: retrying is safe.
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = await reference.get();
+      if (!current.exists || current.data().approvalStatus !== "aprobado" ||
+          !["vecino", "admin"].includes(current.data().role) || current.data().profileWithdrawalInProgress === true) break;
+      const account = await getAuth().getUser(userId);
+      const currentRole = current.data().role;
+      await getAuth().setCustomUserClaims(userId, {...account.customClaims, approved: true, role: currentRole});
+      const latest = await reference.get();
+      if (latest.exists && latest.data().approvalStatus === "aprobado" &&
+          latest.data().role === currentRole && latest.data().profileWithdrawalInProgress !== true) return {success: true};
+    }
+  } catch (_) {
+    // Return an actionable error below without exposing account details.
   }
-  await reference.update({role, updatedAt: FieldValue.serverTimestamp()});
-  await getAuth().setCustomUserClaims(userId, {approved: true, role});
-  return {success: true};
+  throw new HttpsError("internal", "El rol se guardó, pero no se pudo sincronizar el acceso. Actualiza el rol nuevamente para completar el cambio.");
 });
 
 exports.updateOwnProfile = onCall({region}, async (request) => {

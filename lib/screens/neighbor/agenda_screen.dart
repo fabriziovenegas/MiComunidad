@@ -175,6 +175,7 @@ class AgendaScreen extends StatelessWidget {
                             collection: 'events',
                             documentId: document.id,
                             title: data['title'] as String? ?? 'Actividad',
+                            data: data,
                             user: user,
                             allowMinutes: true,
                           ),

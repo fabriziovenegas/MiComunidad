@@ -80,6 +80,15 @@ class CommunityService {
   final Set<String> _projectsBeingDeleted = <String>{};
   final Set<String> _reportsBeingDeleted = <String>{};
 
+  Future<String?> currentReportAuthorName(String reportId) async {
+    final result = await _functions
+        .httpsCallable('getReportAuthorName',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 10)))
+        .call<Map<String, dynamic>>({'reportId': reportId});
+    final name = result.data['name'];
+    return name is String && name.trim().isNotEmpty ? name.trim() : null;
+  }
+
   Future<PublicCommunitySummary> publicSummary() async {
     final result = await _functions
         .httpsCallable('getPublicCommunitySummary')

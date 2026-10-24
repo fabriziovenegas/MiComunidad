@@ -8,6 +8,9 @@ import '../services/file_service.dart';
 import 'image_gallery_screen.dart';
 import '../utils/text_encoding.dart';
 import 'content_comment_composer.dart';
+import 'upload_picker.dart';
+import 'upload_error_notice.dart';
+import 'content_information.dart';
 
 class ContentDetailSheet extends StatefulWidget {
   const ContentDetailSheet(
@@ -16,6 +19,7 @@ class ContentDetailSheet extends StatefulWidget {
       required this.documentId,
       required this.title,
       required this.user,
+      this.data = const {},
       this.allowMinutes = false,
       this.readOnly = false,
       this.allowCommentsWhenReadOnly = false,
@@ -24,6 +28,7 @@ class ContentDetailSheet extends StatefulWidget {
   final String documentId;
   final String title;
   final AppUser user;
+  final Map<String, dynamic> data;
   final bool allowMinutes;
   final bool readOnly;
   final bool allowCommentsWhenReadOnly;
@@ -42,13 +47,15 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           (widget.collection == 'reports' && widget.allowCommentsWhenReadOnly));
 
   Future<void> _addImage() async {
-    final selected = await FileService.pickImage();
+    final selected =
+        await pickUploadWithFeedback(context, FileService.pickImage);
     if (selected == null) return;
     await _upload(selected, 'photos');
   }
 
   Future<void> _addMinutes() async {
-    final selected = await FileService.pickIdentityDocument();
+    final selected =
+        await pickUploadWithFeedback(context, FileService.pickIdentityDocument);
     if (selected == null) return;
     await _upload(selected, 'minutes');
   }
@@ -83,8 +90,7 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           _uploadFailed = true;
           _uploadMessage = 'No se pudo subir el archivo: $error';
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo subir el archivo: $error')));
+        showUploadError(context, 'No se pudo subir el archivo: $error');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -125,6 +131,9 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                 : 'Vista de solo lectura.'),
           ],
           const SizedBox(height: 16),
+          if (widget.data.isNotEmpty)
+            ContentInformation(
+                collection: widget.collection, data: widget.data),
           if (!widget.readOnly)
             Row(children: [
               Expanded(

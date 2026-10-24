@@ -9,6 +9,8 @@ import '../../widgets/content_detail_sheet.dart';
 import '../../widgets/report_detail_sheet.dart';
 import '../../widgets/report_edit_dialog.dart';
 import '../../widgets/report_status_dialog.dart';
+import '../../widgets/upload_picker.dart';
+import '../../widgets/current_report_author_name.dart';
 import '../../utils/text_encoding.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -113,7 +115,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                   OutlinedButton.icon(
                                       onPressed: () async {
                                         final selected =
-                                            await FileService.pickImage();
+                                            await pickUploadWithFeedback(
+                                                context, FileService.pickImage);
                                         if (selected != null) {
                                           setDialogState(
                                               () => image = selected);
@@ -402,12 +405,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ? ReportDetailSheet(
                 reportId: document.id,
                 data: data,
+                user: widget.user,
                 footer: footer,
               )
             : ContentDetailSheet(
                 collection: 'reports',
                 documentId: document.id,
                 title: data['title'] as String? ?? 'Reporte',
+                data: data,
                 user: widget.user,
                 readOnly: status == 'resuelto',
                 allowCommentsWhenReadOnly:
@@ -531,6 +536,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 if (showPending) ...[
                   _PendingReports(
                     reports: pendingDocs,
+                    user: widget.user,
                     onModerate: _moderate,
                   ),
                   const SizedBox(height: 16),
@@ -623,12 +629,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                             size: 18),
                                         const SizedBox(width: 4),
                                         Expanded(
-                                            child: Text(readableText(
-                                                        data['createdByName'])
-                                                    .isEmpty
-                                                ? 'Vecino'
-                                                : readableText(
-                                                    data['createdByName']))),
+                                            child: CurrentReportAuthorName(
+                                          key: ValueKey(document.id),
+                                          reportId: document.id,
+                                          authorId:
+                                              readableText(data['createdBy']),
+                                          savedName: readableText(
+                                              data['createdByName']),
+                                          viewer: widget.user,
+                                        )),
                                         const Icon(Icons.location_on_outlined,
                                             size: 18),
                                         const SizedBox(width: 4),
@@ -655,10 +664,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
 class _PendingReports extends StatelessWidget {
   const _PendingReports({
     required this.reports,
+    required this.user,
     required this.onModerate,
   });
 
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> reports;
+  final AppUser user;
 
   final Future<void> Function(
     QueryDocumentSnapshot<Map<String, dynamic>>,
@@ -687,6 +698,7 @@ class _PendingReports extends StatelessWidget {
                     builder: (_) => ReportDetailSheet(
                       reportId: report.id,
                       data: data,
+                      user: user,
                     ),
                   ),
                   title: Text(readableText(data['title'])),

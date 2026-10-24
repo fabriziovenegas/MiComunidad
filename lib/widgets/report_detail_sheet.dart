@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../services/community_service.dart';
 import '../utils/text_encoding.dart';
+import '../models/user_model.dart';
+import 'current_report_author_name.dart';
 import 'image_gallery_screen.dart';
 
 class ReportDetailSheet extends StatelessWidget {
@@ -10,11 +12,13 @@ class ReportDetailSheet extends StatelessWidget {
     super.key,
     required this.reportId,
     required this.data,
+    this.user,
     this.footer,
   });
 
   final String reportId;
   final Map<String, dynamic> data;
+  final AppUser? user;
   final Widget? footer;
 
   @override
@@ -69,6 +73,12 @@ class ReportDetailSheet extends StatelessWidget {
             icon: Icons.person_outline,
             label: 'Reportado por',
             value: author,
+            content: CurrentReportAuthorName(
+              reportId: reportId,
+              authorId: _text(data['createdBy'], fallback: ''),
+              savedName: author,
+              viewer: user,
+            ),
           ),
           if (rejected)
             _DetailField(
@@ -110,11 +120,13 @@ class _DetailField extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.content,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final Widget? content;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -130,7 +142,7 @@ class _DetailField extends StatelessWidget {
                 children: [
                   Text(label, style: Theme.of(context).textTheme.labelLarge),
                   const SizedBox(height: 3),
-                  Text(value),
+                  content ?? Text(value),
                 ],
               ),
             ),

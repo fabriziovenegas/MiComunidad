@@ -33,7 +33,8 @@ class FileService {
     if (result == null) return null;
     final selected = SelectedUpload(result.files.single);
     if (selected.size > maxImageBytes) {
-      throw const FileUploadException('La imagen no puede superar 10 MB.');
+      throw FileUploadException(
+          'La imagen no puede superar ${maxImageBytes ~/ (1024 * 1024)} MB.');
     }
     return selected;
   }
@@ -48,7 +49,8 @@ class FileService {
     if (result == null) return null;
     final selected = SelectedUpload(result.files.single);
     if (selected.size > maxDocumentBytes) {
-      throw const FileUploadException('El archivo no puede superar 5 MB.');
+      throw FileUploadException(
+          'El archivo no puede superar ${maxDocumentBytes ~/ (1024 * 1024)} MB.');
     }
     return selected;
   }

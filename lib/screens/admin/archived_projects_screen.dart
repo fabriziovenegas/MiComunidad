@@ -166,6 +166,7 @@ class _ArchivedProjectsScreenState extends State<ArchivedProjectsScreen> {
         collection: 'projects',
         documentId: document.id,
         title: data['title'] as String? ?? 'Proyecto',
+        data: data,
         user: widget.user,
         readOnly: true,
       ),
