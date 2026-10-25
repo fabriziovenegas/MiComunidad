@@ -5,6 +5,10 @@ import '../admin/archived_projects_screen.dart';
 import '../../services/community_service.dart';
 import '../../widgets/content_detail_sheet.dart';
 import '../../utils/project_progress_input.dart';
+import '../../services/content_creation_draft.dart';
+import '../../widgets/form_submission_guard.dart';
+import '../../widgets/upload_error_notice.dart';
+import '../../widgets/project_presentation.dart';
 
 class ProjectsScreen extends StatefulWidget {
   const ProjectsScreen({super.key, required this.user});
@@ -18,7 +22,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
 
   Future<void> _projectForm(
       [QueryDocumentSnapshot<Map<String, dynamic>>? document]) async {
+    if (ModalRoute.of(context)?.isCurrent == false) return;
     final formKey = GlobalKey<FormState>();
+    final draft = document == null
+        ? ContentCreationDraft(
+            collection: 'projects', expectedUserId: widget.user.userId)
+        : null;
     final data = document?.data() ?? const <String, dynamic>{};
     var title = data['title'] as String? ?? '';
     var location = data['location'] as String? ?? '';
@@ -32,154 +41,193 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     var status = data['status'] as String? ?? 'pendiente';
     final action = await showDialog<String>(
         context: context,
+        barrierDismissible: false,
         builder: (context) => StatefulBuilder(
-            builder: (context, setDialogState) => AlertDialog(
-                    title: Text(document == null
-                        ? 'Nuevo proyecto'
-                        : 'Actualizar proyecto'),
-                    content: SingleChildScrollView(
-                        child: Form(
-                            key: formKey,
-                            child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  TextFormField(
-                                      initialValue: title,
-                                      onChanged: (value) => title = value,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Nombre *'),
-                                      validator: (value) =>
-                                          value == null || value.trim().isEmpty
+            builder: (context, setDialogState) => FormSubmissionGuard(
+                validate: () => formKey.currentState?.validate() == true,
+                onSubmit: () async {
+                  final percent = ProjectProgressInputFormatter.parse(progress);
+                  if (percent == null) throw StateError('Avance no válido.');
+                  final payload = <String, dynamic>{
+                    'title': title.trim(),
+                    'location': location.trim(),
+                    'description': description.trim(),
+                    'progress': percent,
+                    'status': status,
+                  };
+                  if (document == null) {
+                    await draft!.save(payload);
+                  } else {
+                    await CommunityService.instance
+                        .updateProject(document.id, payload);
+                  }
+                },
+                onSubmitted: (context) => Navigator.pop(context, 'save'),
+                builder: (context, saving, submit) => AlertDialog(
+                        title: Text(document == null
+                            ? 'Nuevo proyecto'
+                            : 'Actualizar proyecto'),
+                        content: SingleChildScrollView(
+                            child: Form(
+                                key: formKey,
+                                child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      TextFormField(
+                                          enabled: !saving,
+                                          initialValue: title,
+                                          onChanged: (value) => title = value,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Nombre *'),
+                                          validator: (value) => value == null ||
+                                                  value.trim().isEmpty
                                               ? 'El nombre es obligatorio.'
                                               : null),
-                                  const SizedBox(height: 10),
-                                  TextFormField(
-                                      initialValue: location,
-                                      onChanged: (value) => location = value,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Ubicación')),
-                                  const SizedBox(height: 10),
-                                  TextFormField(
-                                      initialValue: description,
-                                      onChanged: (value) => description = value,
-                                      minLines: 2,
-                                      maxLines: 4,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Descripción *'),
-                                      validator: (value) =>
-                                          value == null || value.trim().isEmpty
+                                      const SizedBox(height: 10),
+                                      TextFormField(
+                                          enabled: !saving,
+                                          initialValue: location,
+                                          onChanged: (value) =>
+                                              location = value,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Ubicación')),
+                                      const SizedBox(height: 10),
+                                      TextFormField(
+                                          enabled: !saving,
+                                          initialValue: description,
+                                          onChanged: (value) =>
+                                              description = value,
+                                          minLines: 2,
+                                          maxLines: 4,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Descripción *'),
+                                          validator: (value) => value == null ||
+                                                  value.trim().isEmpty
                                               ? 'La descripción es obligatoria.'
                                               : null),
-                                  const SizedBox(height: 10),
-                                  TextFormField(
-                                      initialValue: progress,
-                                      onChanged: (value) => progress = value,
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
+                                      const SizedBox(height: 10),
+                                      TextFormField(
+                                          enabled: !saving,
+                                          initialValue: progress,
+                                          onChanged: (value) =>
+                                              progress = value,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(
                                               decimal: false, signed: false),
-                                      inputFormatters: [
-                                        ProjectProgressInputFormatter()
-                                      ],
-                                      validator: ProjectProgressInputFormatter
-                                          .validate,
-                                      autovalidateMode:
-                                          AutovalidateMode.onUserInteraction,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Avance de 0 a 100',
-                                          helperText: 'Solo números enteros.')),
-                                  const SizedBox(height: 10),
-                                  DropdownButtonFormField<String>(
-                                      initialValue: status,
-                                      decoration: const InputDecoration(
-                                          labelText: 'Estado'),
-                                      items: const [
-                                        'pendiente',
-                                        'en_proceso',
-                                        'finalizado'
-                                      ]
-                                          .map((value) => DropdownMenuItem(
-                                              value: value,
-                                              child: Text(_label(value))))
-                                          .toList(),
-                                      onChanged: (value) => setDialogState(
-                                          () => status = value!)),
-                                  const SizedBox(height: 10),
-                                  const Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text('* Campos obligatorios'),
-                                  ),
-                                  if (document != null) ...[
-                                    const SizedBox(height: 20),
-                                    const Divider(),
-                                    const SizedBox(height: 8),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        onPressed: () async {
-                                          final confirmed =
-                                              await showDialog<bool>(
-                                            context: context,
-                                            builder: (confirmContext) =>
-                                                AlertDialog(
-                                              title: const Text(
-                                                  'Archivar proyecto'),
-                                              content: const Text(
-                                                '¿Deseas archivar este proyecto? '
-                                                'Dejará de aparecer en la lista normal y podrás restaurarlo desde Archivados.',
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(
-                                                          confirmContext,
-                                                          false),
-                                                  child: const Text('Cancelar'),
-                                                ),
-                                                FilledButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(
-                                                          confirmContext, true),
-                                                  child: const Text('Archivar'),
-                                                ),
-                                              ],
-                                            ),
-                                          );
+                                          inputFormatters: [
+                                            ProjectProgressInputFormatter()
+                                          ],
+                                          validator:
+                                              ProjectProgressInputFormatter
+                                                  .validate,
+                                          autovalidateMode: AutovalidateMode
+                                              .onUserInteraction,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Avance de 0 a 100',
+                                              helperText:
+                                                  'Solo números enteros.')),
+                                      const SizedBox(height: 10),
+                                      DropdownButtonFormField<String>(
+                                          initialValue: status,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Estado'),
+                                          items: const [
+                                            'pendiente',
+                                            'en_proceso',
+                                            'finalizado'
+                                          ]
+                                              .map((value) => DropdownMenuItem(
+                                                  value: value,
+                                                  child: Text(_label(value))))
+                                              .toList(),
+                                          onChanged: saving
+                                              ? null
+                                              : (value) => setDialogState(
+                                                  () => status = value!)),
+                                      const SizedBox(height: 10),
+                                      const Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text('* Campos obligatorios'),
+                                      ),
+                                      if (document != null) ...[
+                                        const SizedBox(height: 20),
+                                        const Divider(),
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: OutlinedButton.icon(
+                                            onPressed: saving
+                                                ? null
+                                                : () async {
+                                                    final confirmed =
+                                                        await showDialog<bool>(
+                                                      context: context,
+                                                      builder:
+                                                          (confirmContext) =>
+                                                              AlertDialog(
+                                                        title: const Text(
+                                                            'Archivar proyecto'),
+                                                        content: const Text(
+                                                          '¿Deseas archivar este proyecto? '
+                                                          'Dejará de aparecer en la lista normal y podrás restaurarlo desde Archivados.',
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                    confirmContext,
+                                                                    false),
+                                                            child: const Text(
+                                                                'Cancelar'),
+                                                          ),
+                                                          FilledButton(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                    confirmContext,
+                                                                    true),
+                                                            child: const Text(
+                                                                'Archivar'),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
 
-                                          if (confirmed == true &&
-                                              context.mounted) {
-                                            Navigator.pop(context, 'trash');
-                                          }
-                                        },
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Theme.of(context)
-                                              .colorScheme
-                                              .error,
-                                          side: BorderSide(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .error,
+                                                    if (confirmed == true &&
+                                                        context.mounted) {
+                                                      Navigator.pop(
+                                                          context, 'trash');
+                                                    }
+                                                  },
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: Theme.of(context)
+                                                  .colorScheme
+                                                  .error,
+                                              side: BorderSide(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .error,
+                                              ),
+                                            ),
+                                            icon: const Icon(
+                                                Icons.archive_outlined),
+                                            label:
+                                                const Text('Archivar proyecto'),
                                           ),
                                         ),
-                                        icon:
-                                            const Icon(Icons.archive_outlined),
-                                        label: const Text('Archivar proyecto'),
-                                      ),
-                                    ),
-                                  ],
-                                ]))),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, 'cancel'),
-                        child: const Text('Cancelar'),
-                      ),
-                      FilledButton(
-                        onPressed: () {
-                          if (formKey.currentState?.validate() != true) return;
-                          Navigator.pop(context, 'save');
-                        },
-                        child: const Text('Guardar'),
-                      ),
-                    ])));
+                                      ],
+                                    ]))),
+                        actions: [
+                          TextButton(
+                            onPressed: saving
+                                ? null
+                                : () => Navigator.pop(context, 'cancel'),
+                            child: const Text('Cancelar'),
+                          ),
+                          FilledButton(
+                            onPressed: saving ? null : submit,
+                            child: Text(saving ? 'Guardando…' : 'Guardar'),
+                          ),
+                        ]))));
     if (action == 'trash' && document != null) {
       try {
         await CommunityService.instance.moveProjectToTrash(
@@ -206,20 +254,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       return;
     }
 
-    if (action != 'save' || title.trim().isEmpty) return;
-    final percent = ProjectProgressInputFormatter.parse(progress);
-    if (percent == null) return;
-    final payload = {
-      'title': title.trim(),
-      'location': location.trim(),
-      'description': description.trim(),
-      'progress': percent,
-      'status': status
-    };
-    if (document == null) {
-      await CommunityService.instance.createProject(payload);
-    } else {
-      await CommunityService.instance.updateProject(document.id, payload);
+    if (action == 'save' && mounted) {
+      showSuccessNotice(context, 'Proyecto guardado.');
     }
   }
 
@@ -229,6 +265,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
+        backgroundColor: ProjectVisuals.sheetBackground,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
         builder: (_) => ContentDetailSheet(
             collection: 'projects',
             documentId: document.id,
@@ -313,84 +352,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         itemBuilder: (context, index) {
                           final document = documents[index];
                           final data = document.data();
-                          final progress =
-                              (data['progress'] as num?)?.toDouble() ?? 0;
-                          return Card(
-                              child: InkWell(
-                                  borderRadius: BorderRadius.circular(16),
-                                  onTap: () => _open(document),
-                                  child: Padding(
-                                      padding: const EdgeInsets.all(16),
-                                      child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Row(children: [
-                                              Expanded(
-                                                  child: Text(
-                                                      data['title']
-                                                              as String? ??
-                                                          'Proyecto',
-                                                      style: Theme.of(context)
-                                                          .textTheme
-                                                          .titleLarge)),
-                                              Chip(
-                                                  label: Text(_label(
-                                                      data['status']
-                                                              as String? ??
-                                                          'pendiente')))
-                                            ]),
-                                            Row(children: [
-                                              if ((data['location']
-                                                          as String? ??
-                                                      '')
-                                                  .trim()
-                                                  .isNotEmpty) ...[
-                                                const Icon(
-                                                    Icons.location_on_outlined,
-                                                    size: 18),
-                                                const SizedBox(width: 4),
-                                              ],
-                                              Flexible(
-                                                  child: Text(data['location']
-                                                          as String? ??
-                                                      '')),
-                                            ]),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                                data['description']
-                                                        as String? ??
-                                                    '',
-                                                maxLines: 3,
-                                                overflow:
-                                                    TextOverflow.ellipsis),
-                                            const SizedBox(height: 12),
-                                            Row(children: [
-                                              Expanded(
-                                                  child:
-                                                      LinearProgressIndicator(
-                                                          value:
-                                                              progress / 100)),
-                                              const SizedBox(width: 10),
-                                              Text('${progress.round()}%')
-                                            ]),
-                                            const SizedBox(height: 8),
-                                            Row(children: [
-                                              const Icon(
-                                                  Icons.photo_camera_outlined,
-                                                  size: 18),
-                                              const SizedBox(width: 5),
-                                              const Text('Fotos y comentarios'),
-                                              const Spacer(),
-                                              if (widget.user.isAdmin)
-                                                IconButton(
-                                                    tooltip: 'Editar proyecto',
-                                                    onPressed: () =>
-                                                        _projectForm(document),
-                                                    icon:
-                                                        const Icon(Icons.edit))
-                                            ])
-                                          ]))));
+                          return ProjectPreviewCard(
+                            data: data,
+                            onOpen: () => _open(document),
+                            onEdit: widget.user.isAdmin
+                                ? () => _projectForm(document)
+                                : null,
+                          );
                         })),
             ]);
           },

@@ -4,84 +4,126 @@ import 'package:intl/intl.dart';
 import '../../models/user_model.dart';
 import '../../services/community_service.dart';
 import '../../widgets/content_detail_sheet.dart';
+import '../../services/content_creation_draft.dart';
+import '../../widgets/form_submission_guard.dart';
+import '../../widgets/upload_error_notice.dart';
 
 class AgendaScreen extends StatelessWidget {
   const AgendaScreen({super.key, required this.user});
   final AppUser user;
 
   Future<void> _create(BuildContext context) async {
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    final formKey = GlobalKey<FormState>();
+    final draft =
+        ContentCreationDraft(collection: 'events', expectedUserId: user.userId);
     var title = '';
     var location = '';
     var description = '';
     var date = DateTime.now().add(const Duration(days: 1));
     final save = await showDialog<bool>(
         context: context,
+        barrierDismissible: false,
         builder: (context) => StatefulBuilder(
-            builder: (context, setDialogState) => AlertDialog(
-                    title: const Text('Nueva reunión o actividad'),
-                    content: SingleChildScrollView(
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                      TextField(
-                          onChanged: (value) => title = value,
-                          decoration:
-                              const InputDecoration(labelText: 'Título')),
-                      const SizedBox(height: 10),
-                      TextField(
-                          onChanged: (value) => location = value,
-                          decoration:
-                              const InputDecoration(labelText: 'Lugar')),
-                      const SizedBox(height: 10),
-                      TextField(
-                          onChanged: (value) => description = value,
-                          minLines: 2,
-                          maxLines: 4,
-                          decoration:
-                              const InputDecoration(labelText: 'Descripción')),
-                      const SizedBox(height: 10),
-                      ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.calendar_month),
-                          title:
-                              Text(DateFormat('dd/MM/yyyy HH:mm').format(date)),
-                          onTap: () async {
-                            final selectedDate = await showDatePicker(
-                                context: context,
-                                firstDate: DateTime.now(),
-                                lastDate: DateTime.now()
-                                    .add(const Duration(days: 730)),
-                                initialDate: date);
-                            if (selectedDate == null || !context.mounted) {
-                              return;
-                            }
-                            final selectedTime = await showTimePicker(
-                                context: context,
-                                initialTime: TimeOfDay.fromDateTime(date));
-                            if (selectedTime != null) {
-                              setDialogState(() => date = DateTime(
-                                  selectedDate.year,
-                                  selectedDate.month,
-                                  selectedDate.day,
-                                  selectedTime.hour,
-                                  selectedTime.minute));
-                            }
-                          })
-                    ])),
-                    actions: [
-                      TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: const Text('Cancelar')),
-                      FilledButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          child: const Text('Crear'))
-                    ])));
-    if (save == true && title.trim().isNotEmpty) {
-      await CommunityService.instance.createEvent({
-        'title': title.trim(),
-        'location': location.trim(),
-        'description': description.trim(),
-        'eventDate': Timestamp.fromDate(date)
-      });
+            builder: (context, setDialogState) => FormSubmissionGuard(
+                validate: () => formKey.currentState?.validate() == true,
+                onSubmit: () => draft.save({
+                      'title': title.trim(),
+                      'location': location.trim(),
+                      'description': description.trim(),
+                      'eventDate': Timestamp.fromDate(date),
+                    }),
+                onSubmitted: (context) => Navigator.pop(context, true),
+                builder: (context, saving, submit) => AlertDialog(
+                        title: const Text('Nueva reunión o actividad'),
+                        content: SingleChildScrollView(
+                            child: Form(
+                                key: formKey,
+                                child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      TextFormField(
+                                          enabled: !saving,
+                                          onChanged: (value) => title = value,
+                                          validator: (value) => value == null ||
+                                                  value.trim().isEmpty
+                                              ? 'El título es obligatorio.'
+                                              : null,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Título')),
+                                      const SizedBox(height: 10),
+                                      TextField(
+                                          enabled: !saving,
+                                          onChanged: (value) =>
+                                              location = value,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Lugar')),
+                                      const SizedBox(height: 10),
+                                      TextField(
+                                          enabled: !saving,
+                                          onChanged: (value) =>
+                                              description = value,
+                                          minLines: 2,
+                                          maxLines: 4,
+                                          decoration: const InputDecoration(
+                                              labelText: 'Descripción')),
+                                      const SizedBox(height: 10),
+                                      ListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          leading:
+                                              const Icon(Icons.calendar_month),
+                                          title: Text(
+                                              DateFormat('dd/MM/yyyy HH:mm')
+                                                  .format(date)),
+                                          onTap: saving
+                                              ? null
+                                              : () async {
+                                                  final selectedDate =
+                                                      await showDatePicker(
+                                                          context: context,
+                                                          firstDate:
+                                                              DateTime.now(),
+                                                          lastDate: DateTime
+                                                                  .now()
+                                                              .add(
+                                                                  const Duration(
+                                                                      days:
+                                                                          730)),
+                                                          initialDate: date);
+                                                  if (selectedDate == null ||
+                                                      !context.mounted) {
+                                                    return;
+                                                  }
+                                                  final selectedTime =
+                                                      await showTimePicker(
+                                                          context: context,
+                                                          initialTime: TimeOfDay
+                                                              .fromDateTime(
+                                                                  date));
+                                                  if (selectedTime != null) {
+                                                    setDialogState(() => date =
+                                                        DateTime(
+                                                            selectedDate.year,
+                                                            selectedDate.month,
+                                                            selectedDate.day,
+                                                            selectedTime.hour,
+                                                            selectedTime
+                                                                .minute));
+                                                  }
+                                                })
+                                    ]))),
+                        actions: [
+                          TextButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.pop(context, false),
+                              child: const Text('Cancelar')),
+                          FilledButton(
+                              onPressed: saving ? null : submit,
+                              child: Text(saving ? 'Guardando…' : 'Crear'))
+                        ]))));
+    if (save == true && context.mounted) {
+      showSuccessNotice(context, 'Actividad creada.');
     }
   }
 

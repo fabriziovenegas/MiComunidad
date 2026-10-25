@@ -6,7 +6,15 @@ VoidCallback? _dismissUploadError;
 void dismissUploadError() => _dismissUploadError?.call();
 
 /// Uses the root overlay so dialogs and expanded bottom sheets cannot hide it.
-void showUploadError(BuildContext context, String message) {
+void showUploadError(BuildContext context, String message) =>
+    _showNotice(context, message, isError: true);
+
+/// Shows a confirmed save above the closing form and the navigation bar.
+void showSuccessNotice(BuildContext context, String message) =>
+    _showNotice(context, message, isError: false);
+
+void _showNotice(BuildContext context, String message,
+    {required bool isError}) {
   if (!context.mounted) return;
   final overlay = Overlay.maybeOf(context, rootOverlay: true);
   if (overlay == null) return;
@@ -23,8 +31,9 @@ void showUploadError(BuildContext context, String message) {
   }
 
   entry = OverlayEntry(
-    builder: (_) => _UploadErrorNotice(
+    builder: (_) => _OverlayNotice(
       message: message,
+      isError: isError,
       onDismiss: dismiss,
       onDisposed: () {
         dismissed = true;
@@ -36,22 +45,24 @@ void showUploadError(BuildContext context, String message) {
   overlay.insert(entry);
 }
 
-class _UploadErrorNotice extends StatefulWidget {
-  const _UploadErrorNotice({
+class _OverlayNotice extends StatefulWidget {
+  const _OverlayNotice({
     required this.message,
+    required this.isError,
     required this.onDismiss,
     required this.onDisposed,
   });
 
   final String message;
+  final bool isError;
   final VoidCallback onDismiss;
   final VoidCallback onDisposed;
 
   @override
-  State<_UploadErrorNotice> createState() => _UploadErrorNoticeState();
+  State<_OverlayNotice> createState() => _OverlayNoticeState();
 }
 
-class _UploadErrorNoticeState extends State<_UploadErrorNotice> {
+class _OverlayNoticeState extends State<_OverlayNotice> {
   Timer? _timer;
   bool _started = false;
 
@@ -90,15 +101,23 @@ class _UploadErrorNoticeState extends State<_UploadErrorNotice> {
                 liveRegion: true,
                 container: true,
                 child: Material(
-                  key: const ValueKey('upload-error-notice'),
-                  color: const Color(0xFFB3261E),
+                  key: ValueKey(widget.isError
+                      ? 'upload-error-notice'
+                      : 'save-success-notice'),
+                  color: widget.isError
+                      ? const Color(0xFFB3261E)
+                      : const Color(0xFF276749),
                   elevation: 8,
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
                     child: Row(
                       children: [
-                        const Icon(Icons.error_outline, color: Colors.white),
+                        Icon(
+                            widget.isError
+                                ? Icons.error_outline
+                                : Icons.check_circle_outline,
+                            color: Colors.white),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(widget.message,

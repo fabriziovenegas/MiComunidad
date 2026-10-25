@@ -6,10 +6,12 @@ class ContentCommentComposer extends StatefulWidget {
     super.key,
     required this.onSend,
     this.enabled = true,
+    this.projectStyle = false,
   });
 
   final Future<void> Function(String text) onSend;
   final bool enabled;
+  final bool projectStyle;
 
   @override
   State<ContentCommentComposer> createState() => _ContentCommentComposerState();
@@ -41,7 +43,16 @@ class _ContentCommentComposerState extends State<ContentCommentComposer> {
                     const InputDecoration(hintText: 'Escribe un comentario…'),
               ),
             ),
+            if (widget.projectStyle) const SizedBox(width: 8),
             IconButton.filled(
+              style: widget.projectStyle
+                  ? IconButton.styleFrom(
+                      backgroundColor: const Color(0xFF276749),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(48, 48),
+                      padding: const EdgeInsets.all(12),
+                    )
+                  : null,
               tooltip: 'Enviar comentario',
               onPressed: widget.enabled && !_saving ? _send : null,
               icon: _saving

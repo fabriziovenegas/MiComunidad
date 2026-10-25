@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../services/community_service.dart';
 import '../../widgets/content_detail_sheet.dart';
+import '../../widgets/project_presentation.dart';
 
 class ArchivedProjectsScreen extends StatefulWidget {
   const ArchivedProjectsScreen({
@@ -63,81 +64,36 @@ class _ArchivedProjectsScreenState extends State<ArchivedProjectsScreen> {
             itemBuilder: (context, index) {
               final document = archived[index];
               final data = document.data();
-              final progress = (data['progress'] as num?)?.toDouble() ?? 0;
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              data['title'] as String? ?? 'Proyecto',
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                          ),
-                          Chip(
-                            label: Text(_statusLabel(
-                              data['status'] as String? ?? 'pendiente',
-                            )),
-                          ),
-                        ],
+              return ProjectPreviewCard(
+                data: data,
+                onOpen: () => _openProject(context, document),
+                detailsLabel: 'Ver información',
+                detailsIcon: Icons.visibility_outlined,
+                actions: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: () => _restoreProject(
+                        context,
+                        document,
                       ),
-                      if ((data['location'] as String? ?? '').isNotEmpty)
-                        Text(data['location'] as String),
-                      const SizedBox(height: 8),
-                      Text(data['description'] as String? ?? ''),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: LinearProgressIndicator(
-                              value: progress.clamp(0, 100) / 100,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Text('${progress.clamp(0, 100).round()}%'),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () => _openProject(
-                              context,
-                              document,
-                            ),
-                            icon: const Icon(Icons.visibility_outlined),
-                            label: const Text('Ver información'),
-                          ),
-                          FilledButton.tonalIcon(
-                            onPressed: () => _restoreProject(
-                              context,
-                              document,
-                            ),
-                            icon: const Icon(Icons.restore),
-                            label: const Text('Restaurar'),
-                          ),
-                          TextButton.icon(
-                            onPressed: _deletingProjectId == null
-                                ? () => _confirmPermanentDeletion(
-                                      context,
-                                      document,
-                                    )
-                                : null,
-                            icon: const Icon(Icons.delete_forever_outlined),
-                            label: Text(_deletingProjectId == document.id
-                                ? 'Eliminando...'
-                                : 'Eliminación definitiva'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                      icon: const Icon(Icons.restore),
+                      label: const Text('Restaurar'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _deletingProjectId == null
+                          ? () => _confirmPermanentDeletion(
+                                context,
+                                document,
+                              )
+                          : null,
+                      icon: const Icon(Icons.delete_forever_outlined),
+                      label: Text(_deletingProjectId == document.id
+                          ? 'Eliminando...'
+                          : 'Eliminación definitiva'),
+                    ),
+                  ],
                 ),
               );
             },
@@ -146,12 +102,6 @@ class _ArchivedProjectsScreenState extends State<ArchivedProjectsScreen> {
       ),
     );
   }
-
-  static String _statusLabel(String value) => switch (value) {
-        'en_proceso' => 'En proceso',
-        'finalizado' => 'Finalizado',
-        _ => 'Pendiente',
-      };
 
   void _openProject(
     BuildContext context,
@@ -162,6 +112,9 @@ class _ArchivedProjectsScreenState extends State<ArchivedProjectsScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      backgroundColor: ProjectVisuals.sheetBackground,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       builder: (_) => ContentDetailSheet(
         collection: 'projects',
         documentId: document.id,

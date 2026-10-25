@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../utils/text_encoding.dart';
+import 'expandable_description.dart';
+import 'project_presentation.dart';
 
 /// A compact reading section; the preview's title and controls stay outside it.
 /// Only existing, explicitly selected content fields are displayed.
@@ -17,25 +19,14 @@ class ContentInformation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!const ['projects', 'reports', 'events'].contains(collection)) {
+    if (collection == 'projects') return ProjectInformation(data: data);
+    if (!const ['reports', 'events'].contains(collection)) {
       return const SizedBox.shrink();
     }
     final description = readableText(data['description']).trim();
     final location = readableText(data['location']).trim();
     final badges = <String>[];
-    if (collection == 'projects') {
-      final status = switch (data['status']) {
-        'pendiente' => 'Pendiente',
-        'en_proceso' => 'En proceso',
-        'finalizado' => 'Finalizado',
-        _ => null,
-      };
-      if (status != null) badges.add(status);
-      final progress = data['progress'];
-      if (progress is num && progress.isFinite) {
-        badges.add('${progress.clamp(0, 100).round()} % de avance');
-      }
-    } else if (collection == 'reports') {
+    if (collection == 'reports') {
       final status = switch (data['status']) {
         'pendiente' || 'en_revision' => 'Por atender',
         'en_proceso' => 'En proceso',
@@ -91,7 +82,8 @@ class ContentInformation extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         if (description.isNotEmpty) ...[
-          Text(description,
+          ExpandableDescription(
+              text: description,
               style: Theme.of(context)
                   .textTheme
                   .bodyLarge

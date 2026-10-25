@@ -6,6 +6,7 @@ import 'app.dart';
 import 'core/firebase/firebase_emulator_config.dart';
 import 'firebase_options.dart';
 import 'services/pending_upload_service.dart';
+import 'services/pending_report_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,7 @@ void main() async {
     );
     FirebaseEmulatorConfig.connect();
     PendingUploadService.instance.start();
+    PendingReportService.instance.start();
     debugPrint('Firebase inicializado correctamente.');
   } catch (error) {
     debugPrint('No se pudo inicializar Firebase.');

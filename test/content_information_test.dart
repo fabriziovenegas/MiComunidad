@@ -20,7 +20,7 @@ Future<void> showInformation(
 
 void main() {
   testWidgets(
-      'project shows full description, location and compact state/progress, not another title',
+      'project keeps full description available behind read more without another title',
       (tester) async {
     final description =
         List.generate(12, (i) => 'Demo description line $i.').join('\n');
@@ -33,12 +33,18 @@ void main() {
       'createdAt': Timestamp.now()
     });
     expect(find.text(description), findsOneWidget);
+    expect(tester.widget<Text>(find.text(description)).maxLines, 4);
+    expect(find.text('Leer más'), findsOneWidget);
+    await tester.tap(find.text('Leer más'));
+    await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.text(description)).maxLines, isNull);
+    expect(find.text('Leer menos'), findsOneWidget);
     expect(find.text('Demo hall'), findsOneWidget);
     expect(find.text('Ubicación'), findsNothing);
     expect(find.text('Descripción'), findsNothing);
     expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
-    expect(find.text('En proceso • 80 % de avance'), findsOneWidget);
+    expect(find.text('En proceso'), findsOneWidget);
+    expect(find.text('80 % de avance'), findsOneWidget);
     expect(find.byType(Chip), findsNothing);
     final locationRow =
         find.ancestor(of: find.text('Demo hall'), matching: find.byType(Row));
@@ -47,7 +53,14 @@ void main() {
         findsOneWidget);
     expect(find.text('Title stays in the sheet'), findsNothing);
     expect(find.text('Registrado'), findsNothing);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(
+        tester
+            .widget<LinearProgressIndicator>(
+                find.byType(LinearProgressIndicator))
+            .value,
+        .8);
+    expect(tester.getTopLeft(find.text('Demo hall')).dy,
+        lessThan(tester.getTopLeft(find.text(description)).dy));
     expect(tester.takeException(), isNull);
   });
 
@@ -95,6 +108,7 @@ void main() {
     expect(find.text('Descripción'), findsNothing);
     expect(find.text('Ubicación'), findsNothing);
     expect(find.byIcon(Icons.calendar_today_outlined), findsOneWidget);
+    expect(find.text('Leer más'), findsNothing);
   });
 
   for (final collection in ['projects', 'reports', 'events']) {

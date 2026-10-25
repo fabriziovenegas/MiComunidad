@@ -6,6 +6,7 @@ import '../utils/text_encoding.dart';
 import '../models/user_model.dart';
 import 'current_report_author_name.dart';
 import 'image_gallery_screen.dart';
+import 'expandable_description.dart';
 
 class ReportDetailSheet extends StatelessWidget {
   const ReportDetailSheet({
@@ -53,6 +54,7 @@ class ReportDetailSheet extends StatelessWidget {
             icon: Icons.description_outlined,
             label: 'Descripción',
             value: description,
+            content: ExpandableDescription(text: description),
           ),
           _DetailField(
             icon: Icons.location_on_outlined,
