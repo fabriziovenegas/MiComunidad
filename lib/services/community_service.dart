@@ -10,6 +10,7 @@ import 'file_service.dart';
 import 'pending_upload_service.dart';
 import 'report_content_editor.dart';
 import 'report_comment_writer.dart';
+import 'event_content_editor.dart';
 import 'report_deletion_guard.dart';
 
 class PublicCommunitySummary {
@@ -557,6 +558,14 @@ class CommunityService {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+  Future<void> updateEvent(String eventId, Map<String, dynamic> data) =>
+      EventContentEditor(
+          firestore: _db,
+          currentUserId: () {
+            final user = FirebaseAuth.instance.currentUser;
+            return user == null || user.isAnonymous ? null : user.uid;
+          }).save(eventId, data);
+
   Future<void> deleteEvent(String eventId) async {
     await _db.collection('events').doc(eventId).delete();
   }
@@ -612,13 +621,13 @@ class CommunityService {
     });
   }
 
-  Future<bool> addAttachment({
+  Future<UploadSendResult> addAttachment({
     required String collection,
     required String documentId,
     required String kind,
     required SelectedUpload selected,
   }) =>
-      PendingUploadService.instance.uploadOrQueue(
+      PendingUploadService.instance.send(
         collection: collection,
         documentId: documentId,
         kind: kind,

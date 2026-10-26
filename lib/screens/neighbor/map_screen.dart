@@ -8,6 +8,7 @@ import '../../config/app_colors.dart';
 import '../../config/community_map_data.dart';
 import '../../models/user_model.dart';
 import '../../utils/text_encoding.dart';
+import '../../widgets/community_map_point_sheet.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key, required this.user});
@@ -67,21 +68,21 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _showPoint(BuildContext context, String title, String description) {
+  void _showPoint(BuildContext context, String title, String description,
+      {String? pointId}) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(description),
-          ],
-        ),
+      builder: (context) => CommunityMapPointSheet(
+        title: title,
+        description: description,
+        onDelete:
+            pointId != null && widget.user.isAdmin && widget.user.isApproved
+                ? () => FirebaseFirestore.instance
+                    .collection('mapPoints')
+                    .doc(pointId)
+                    .delete()
+                : null,
       ),
     );
   }
@@ -131,7 +132,8 @@ class _MapScreenState extends State<MapScreen> {
             width: 44,
             height: 44,
             child: GestureDetector(
-              onTap: () => _showPoint(context, title, description),
+              onTap: () =>
+                  _showPoint(context, title, description, pointId: document.id),
               child:
                   const Icon(Icons.location_pin, size: 42, color: Colors.red),
             ),

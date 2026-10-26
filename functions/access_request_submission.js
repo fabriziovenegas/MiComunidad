@@ -19,10 +19,10 @@ function createAccessRequestSubmission({identity, storage, getDownloadURL, Https
       const file = storage().bucket().file(documentPath);
       const [metadata] = await file.getMetadata();
       const size = Number(metadata.size);
-      if (!["image/jpeg", "image/png", "application/pdf"].includes(metadata.contentType) ||
+      if (!["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(metadata.contentType) ||
           !Number.isFinite(size) || size <= 0 || size > 5 * 1024 * 1024 ||
           metadata.metadata?.uploadedBy !== uid) {
-        throw new HttpsError("invalid-argument", "Adjunta un JPG, PNG o PDF válido de hasta 5 MB.");
+        throw new HttpsError("invalid-argument", "Adjunta un JPG, JPEG, PNG, WEBP o PDF válido de hasta 5 MB.");
       }
       // Never trust a caller-provided download URL or a different Storage bucket.
       url = await getDownloadURL(file);

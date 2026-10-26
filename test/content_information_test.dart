@@ -71,6 +71,7 @@ void main() {
       'description': 'Demo report description',
       'location': 'Demo path',
       'status': 'en_proceso',
+      'moderationStatus': 'aprobado',
       'category': 'iluminacion',
       'priority': 'alta',
       'createdAt': Timestamp.fromDate(DateTime(2026, 11, 7, 18, 30))
@@ -78,7 +79,9 @@ void main() {
     for (final text in [
       'Demo report description',
       'Demo path',
-      'En proceso • Iluminación • Prioridad alta',
+      'En proceso',
+      'Iluminación',
+      'Prioridad alta',
       'Registrado el 07/11/2026'
     ]) {
       expect(find.text(text), findsOneWidget);
@@ -177,7 +180,8 @@ void main() {
 
   for (final status in ['pendiente', 'en_revision', 'en_proceso', 'resuelto']) {
     testWidgets('report state $status is readable metadata', (tester) async {
-      await showInformation(tester, 'reports', {'status': status});
+      await showInformation(tester, 'reports',
+          {'status': status, 'moderationStatus': 'aprobado'});
       expect(
           find.text({
             'pendiente': 'Por atender',
@@ -215,6 +219,7 @@ void main() {
             'location':
                 'Demo location with enough text to wrap across several lines',
             'status': 'resuelto',
+            'moderationStatus': 'aprobado',
             'category': 'iluminacion',
             'priority': 'alta',
             'progress': 80,
@@ -222,8 +227,9 @@ void main() {
           },
           scale: 1.6);
       if (collection == 'reports') {
-        expect(find.text('Resuelto • Iluminación • Prioridad alta'),
-            findsOneWidget);
+        expect(find.text('Resuelto'), findsOneWidget);
+        expect(find.text('Iluminación'), findsOneWidget);
+        expect(find.text('Prioridad alta'), findsOneWidget);
       }
       expect(find.text('Descripción'), findsNothing);
       expect(find.text('Ubicación'), findsNothing);

@@ -246,7 +246,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                     const SizedBox(height: 8),
                                     Text(_identityDocument?.name ??
                                         'Toca para adjuntar tu documento'),
-                                    const Text('JPG, PNG o PDF · máximo 5 MB'),
+                                    const Text('JPG, JPEG, PNG, WEBP o PDF · máximo 5 MB'),
                                   ],
                                 ),
                               ),

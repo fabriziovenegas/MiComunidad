@@ -43,6 +43,47 @@ void main() {
     FilePicker.platform = picker;
   });
 
+  for (final extension in ['jpg', 'jpeg', 'png', 'webp', 'WEBP']) {
+    test('photo picker accepts $extension', () async {
+      picker.select(100, name: 'photo.$extension');
+      expect((await FileService.pickImage())!.name, 'photo.$extension');
+    });
+    test('document picker accepts $extension', () async {
+      picker.select(100, name: 'document.$extension');
+      expect((await FileService.pickIdentityDocument())!.name,
+          'document.$extension');
+    });
+  }
+  for (final extension in ['heic', 'heif', 'gif', 'bmp', 'svg', 'txt']) {
+    test('unconfirmed or unsupported $extension stays rejected', () async {
+      picker.select(100, name: 'photo.$extension');
+      await expectLater(
+          FileService.pickImage(), throwsA(isA<FileUploadException>()));
+      await expectLater(FileService.pickIdentityDocument(),
+          throwsA(isA<FileUploadException>()));
+    });
+  }
+  test('PDF remains a document and is never accepted as a photo', () async {
+    picker.select(100, name: 'acta.pdf');
+    await expectLater(
+        FileService.pickImage(), throwsA(isA<FileUploadException>()));
+    expect((await FileService.pickIdentityDocument())!.name, 'acta.pdf');
+  });
+  test('every supported extension gets its actual MIME type', () {
+    for (final entry in {
+      'photo.jpg': 'image/jpeg',
+      'photo.JPEG': 'image/jpeg',
+      'photo.PNG': 'image/png',
+      'photo.webp': 'image/webp',
+      'photo.WEBP': 'image/webp',
+      'document.pdf': 'application/pdf'
+    }.entries) {
+      expect(FileService.contentTypeForName(entry.key), entry.value);
+    }
+    expect(() => FileService.contentTypeForName('photo.heic'),
+        throwsA(isA<FileUploadException>()));
+  });
+
   for (final image in [true, false]) {
     final pick =
         image ? FileService.pickImage : FileService.pickIdentityDocument;
@@ -57,8 +98,11 @@ void main() {
       test('$kind permits $size bytes without changing the limit', () async {
         picker.select(size);
         expect((await pick())?.size, size);
-        expect(picker.extensions,
-            image ? ['jpg', 'jpeg', 'png'] : ['jpg', 'jpeg', 'png', 'pdf']);
+        expect(
+            picker.extensions,
+            image
+                ? ['jpg', 'jpeg', 'png', 'webp']
+                : ['jpg', 'jpeg', 'png', 'webp', 'pdf']);
       });
     }
 

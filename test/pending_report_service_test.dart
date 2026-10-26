@@ -295,6 +295,24 @@ void main() {
     expect(await (await queue.photoFile('stable-report')).readAsBytes(),
         [4, 5, 6]);
   });
+  test('offline WEBP report survives restart and uses one stable photo path',
+      () async {
+    delivery.beforeReport = (_) async => throw noConnection();
+    final queue = service();
+    final image = SelectedUpload(PlatformFile(
+        name: 'report.WEBP', size: 3, bytes: Uint8List.fromList([1, 2, 3])));
+    expect((await submit(queue, image: image)).state, ReportSendState.queued);
+    final recovered = service();
+    expect(
+        (await recovered.pendingFor('owner')).single.photoName, 'report.WEBP');
+    delivery.beforeReport = null;
+    await recovered.processPending();
+    await recovered.processPending();
+    expect(delivery.photos.keys,
+        ['reports/stable-report/photos/stable-report_photo.webp']);
+    expect(delivery.reports, hasLength(1));
+    expect(await recovered.pendingFor('owner'), isEmpty);
+  });
 
   test('oversized image fails before publishing the outbox or sending anything',
       () async {
@@ -357,7 +375,9 @@ void main() {
     final reopened = service();
     final delivered = Completer<void>();
     final subscription = reopened.watch('owner').listen((items) {
-      if (items.isEmpty && delivery.photos.isNotEmpty && !delivered.isCompleted) {
+      if (items.isEmpty &&
+          delivery.photos.isNotEmpty &&
+          !delivered.isCompleted) {
         delivered.complete();
       }
     });

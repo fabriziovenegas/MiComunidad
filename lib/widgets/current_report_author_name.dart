@@ -12,6 +12,7 @@ class CurrentReportAuthorName extends StatefulWidget {
     required this.savedName,
     this.viewer,
     this.loadName,
+    this.prefix = '',
   });
 
   final String reportId;
@@ -19,6 +20,7 @@ class CurrentReportAuthorName extends StatefulWidget {
   final String savedName;
   final AppUser? viewer;
   final Future<String?> Function(String reportId)? loadName;
+  final String prefix;
 
   @override
   State<CurrentReportAuthorName> createState() =>
@@ -76,9 +78,9 @@ class _CurrentReportAuthorNameState extends State<CurrentReportAuthorName>
 
   String _display(String? name) {
     final current = readableText(name).trim();
-    if (current.isNotEmpty) return current;
+    if (current.isNotEmpty) return '${widget.prefix}$current';
     final saved = readableText(widget.savedName).trim();
-    return saved.isEmpty ? 'Vecino' : saved;
+    return '${widget.prefix}${saved.isEmpty ? 'Vecino' : saved}';
   }
 
   @override

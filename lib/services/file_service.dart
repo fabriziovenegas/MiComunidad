@@ -22,16 +22,32 @@ class FileService {
 
   static const int maxImageBytes = 10 * 1024 * 1024;
   static const int maxDocumentBytes = 5 * 1024 * 1024;
+  static const imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+  static const documentExtensions = [...imageExtensions, 'pdf'];
+
+  static String extensionOf(String name) => name.split('.').last.toLowerCase();
+  static String contentTypeForName(String name) => switch (extensionOf(name)) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        'pdf' => 'application/pdf',
+        _ => throw const FileUploadException(
+            'El formato del archivo no es compatible.'),
+      };
 
   static Future<SelectedUpload?> pickImage() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png'],
+      allowedExtensions: imageExtensions,
       allowMultiple: false,
       withData: false,
     );
     if (result == null) return null;
     final selected = SelectedUpload(result.files.single);
+    if (!imageExtensions.contains(extensionOf(selected.name))) {
+      throw const FileUploadException(
+          'Selecciona una imagen JPG, JPEG, PNG o WEBP.');
+    }
     if (selected.size > maxImageBytes) {
       throw FileUploadException(
           'La imagen no puede superar ${maxImageBytes ~/ (1024 * 1024)} MB.');
@@ -42,12 +58,16 @@ class FileService {
   static Future<SelectedUpload?> pickIdentityDocument() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+      allowedExtensions: documentExtensions,
       allowMultiple: false,
       withData: false,
     );
     if (result == null) return null;
     final selected = SelectedUpload(result.files.single);
+    if (!documentExtensions.contains(extensionOf(selected.name))) {
+      throw const FileUploadException(
+          'Selecciona un archivo JPG, JPEG, PNG, WEBP o PDF.');
+    }
     if (selected.size > maxDocumentBytes) {
       throw FileUploadException(
           'El archivo no puede superar ${maxDocumentBytes ~/ (1024 * 1024)} MB.');
@@ -60,17 +80,12 @@ class FileService {
     required String folder,
     required String uploadedBy,
   }) async {
+    final contentType = contentTypeForName(selected.name);
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     final safeName = selected.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final reference = FirebaseStorage.instance.ref(
       '$folder/${DateTime.now().millisecondsSinceEpoch}_$safeName',
     );
-    final extension = safeName.split('.').last.toLowerCase();
-    final contentType = extension == 'pdf'
-        ? 'application/pdf'
-        : extension == 'png'
-            ? 'image/png'
-            : 'image/jpeg';
     final metadata = SettableMetadata(
       contentType: contentType,
       customMetadata: {'uploadedBy': uploadedBy},

@@ -29,26 +29,28 @@ class ProjectStatusBadge extends StatelessWidget {
   final bool outlined;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding:
-            EdgeInsets.symmetric(horizontal: 12, vertical: outlined ? 9 : 7),
-        decoration: BoxDecoration(
-          color: outlined
-              ? Theme.of(context).scaffoldBackgroundColor
-              : ProjectVisuals.softGreen,
-          borderRadius: BorderRadius.circular(outlined ? 9 : 24),
-          border: outlined
-              ? Border.all(color: Theme.of(context).colorScheme.outlineVariant)
-              : null,
-        ),
-        child: Text(label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: outlined
-                      ? ProjectVisuals.secondaryText
-                      : ProjectVisuals.green,
-                  fontWeight: outlined ? FontWeight.w400 : FontWeight.w600,
-                )),
-      );
+  Widget build(BuildContext context) {
+    final (background, foreground) = switch (label) {
+      'En proceso' => (const Color(0xFFFFF3CD), const Color(0xFF795600)),
+      'Finalizado' => (const Color(0xFFD8EEDD), const Color(0xFF236344)),
+      _ => (const Color(0xFFECEFF1), const Color(0xFF455A64)),
+    };
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: outlined ? 9 : 7),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(outlined ? 9 : 24),
+        border: outlined
+            ? Border.all(color: Theme.of(context).colorScheme.outlineVariant)
+            : null,
+      ),
+      child: Text(label,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: foreground,
+                fontWeight: outlined ? FontWeight.w400 : FontWeight.w600,
+              )),
+    );
+  }
 }
 
 class ProjectPreviewCard extends StatelessWidget {

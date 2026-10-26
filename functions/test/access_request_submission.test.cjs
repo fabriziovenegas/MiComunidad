@@ -207,3 +207,19 @@ test('download URLs come from the verified server-side attachment, not from the 
     {requestId: 'request-a'});
   assert.equal(f.calls[0].data.identityDocumentUrl, 'https://example.com/verified-document');
 });
+
+for (const contentType of ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']) {
+  test(`identity attachment accepts ${contentType} with the same ownership and size checks`, async () => {
+    const f = endpoint({metadata: {contentType}});
+    await f.handler(caller(submission({identityDocumentPath: 'access_requests/anonymous-a/identity/document.webp'})));
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].uid, 'anonymous-a');
+  });
+}
+for (const contentType of ['image/heic', 'image/heif', 'image/gif', 'image/svg+xml']) {
+  test(`unconfirmed or unsupported identity MIME ${contentType} remains blocked`, async () => {
+    const f = endpoint({metadata: {contentType}});
+    await assert.rejects(f.handler(caller()), {code: 'invalid-argument'});
+    assert.equal(f.calls.length, 0);
+  });
+}

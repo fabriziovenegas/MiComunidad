@@ -5,29 +5,31 @@ import '../admin/archived_projects_screen.dart';
 import '../../services/community_service.dart';
 import '../../widgets/content_detail_sheet.dart';
 import '../../utils/project_progress_input.dart';
-import '../../services/content_creation_draft.dart';
+import '../../services/pending_content_service.dart';
+import '../../widgets/pending_content_notice.dart';
 import '../../widgets/form_submission_guard.dart';
 import '../../widgets/upload_error_notice.dart';
 import '../../widgets/project_presentation.dart';
 
 class ProjectsScreen extends StatefulWidget {
-  const ProjectsScreen({super.key, required this.user});
+  const ProjectsScreen({super.key, required this.user, this.pendingContent});
   final AppUser user;
+  final PendingContentService? pendingContent;
   @override
   State<ProjectsScreen> createState() => _ProjectsScreenState();
 }
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   String _filter = 'todos';
+  PendingContentService get _outbox =>
+      widget.pendingContent ?? PendingContentService.instance;
 
   Future<void> _projectForm(
       [QueryDocumentSnapshot<Map<String, dynamic>>? document]) async {
     if (ModalRoute.of(context)?.isCurrent == false) return;
     final formKey = GlobalKey<FormState>();
-    final draft = document == null
-        ? ContentCreationDraft(
-            collection: 'projects', expectedUserId: widget.user.userId)
-        : null;
+    final draftId = document == null ? _outbox.newId() : null;
+    PendingSendResult? result;
     final data = document?.data() ?? const <String, dynamic>{};
     var title = data['title'] as String? ?? '';
     var location = data['location'] as String? ?? '';
@@ -56,7 +58,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     'status': status,
                   };
                   if (document == null) {
-                    await draft!.save(payload);
+                    result = await _outbox.submit(
+                        id: draftId!,
+                        collection: 'projects',
+                        expectedUserId: widget.user.userId,
+                        fields: payload);
                   } else {
                     await CommunityService.instance
                         .updateProject(document.id, payload);
@@ -255,7 +261,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     }
 
     if (action == 'save' && mounted) {
-      showSuccessNotice(context, 'Proyecto guardado.');
+      if (result?.state == PendingSendState.blocked) {
+        showUploadError(context,
+            'Proyecto guardado en este dispositivo. ${result!.reason} Revisa los pendientes.');
+      } else {
+        showSuccessNotice(
+            context,
+            result?.state == PendingSendState.queued
+                ? 'Proyecto guardado en este dispositivo. Se enviará cuando haya conexión.'
+                : 'Proyecto guardado.');
+      }
     }
   }
 
@@ -290,11 +305,23 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           stream: CommunityService.instance.activeProjects(),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return const Center(
-                  child: Text('No se pudieron cargar los proyectos.'));
+              return ListView(children: [
+                PendingCollectionNotice(
+                    userId: widget.user.userId,
+                    collection: 'projects',
+                    service: _outbox),
+                const Text('No se pudieron cargar los proyectos.')
+              ]);
             }
             if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return Column(children: [
+                PendingCollectionNotice(
+                    userId: widget.user.userId,
+                    collection: 'projects',
+                    service: _outbox),
+                const Expanded(
+                    child: Center(child: CircularProgressIndicator()))
+              ]);
             }
             final documents = snapshot.data!.docs
                 .where((doc) =>
@@ -318,6 +345,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                     Theme.of(context).textTheme.headlineMedium),
                             const Text(
                                 'Consulta avances y comparte fotografías o comentarios.'),
+                            PendingCollectionNotice(
+                                userId: widget.user.userId,
+                                collection: 'projects',
+                                service: _outbox),
                             const SizedBox(height: 14),
                             ProjectFiltersLayout(
                               archivedButton: widget.user.isAdmin

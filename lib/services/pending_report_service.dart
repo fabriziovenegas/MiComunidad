@@ -238,9 +238,9 @@ class PendingReportService with WidgetsBindingObserver {
                   await folder.create(recursive: true);
                   if (image != null) {
                     final extension = image.name.split('.').last.toLowerCase();
-                    if (!['jpg', 'jpeg', 'png'].contains(extension)) {
+                    if (!FileService.imageExtensions.contains(extension)) {
                       throw const FileUploadException(
-                          'Selecciona una imagen JPG o PNG.');
+                          'Selecciona una imagen JPG, JPEG, PNG o WEBP.');
                     }
                     final file = await photoFile(id);
                     final bytes = image.file.bytes;

@@ -1,32 +1,125 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'file_service.dart';
+import 'attachment_delivery.dart';
+import 'pending_send.dart';
 
-class PendingUploadService {
-  PendingUploadService._();
-  static final PendingUploadService instance = PendingUploadService._();
+class UploadSendResult extends PendingSendResult {
+  const UploadSendResult(super.state, {super.reason, this.error});
+  final Object? error;
+}
+
+class PendingUploadService with WidgetsBindingObserver {
+  PendingUploadService({
+    AttachmentDelivery? delivery,
+    String? Function()? currentUserId,
+    Future<Directory> Function()? supportDirectory,
+    String Function()? projectId,
+    this.foregroundWait = const Duration(seconds: 4),
+  })  : _delivery = delivery ?? FirebaseAttachmentDelivery(),
+        _currentUserId = currentUserId ?? _signedInUser,
+        _supportDirectory = supportDirectory ?? getApplicationSupportDirectory,
+        _projectId = projectId ?? (() => Firebase.app().options.projectId);
+  static final PendingUploadService instance = PendingUploadService();
+
+  final AttachmentDelivery _delivery;
+  final String? Function() _currentUserId;
+  final Future<Directory> Function() _supportDirectory;
+  final String Function() _projectId;
+  final Duration foregroundWait;
+  final _changes = StreamController<void>.broadcast();
+  StreamSubscription<User?>? _auth;
+  final Map<String, Future<void>> _inFlight = {};
+  Future<void> _queueTail = Future<void>.value();
+
+  static String? _signedInUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    return user == null || user.isAnonymous ? null : user.uid;
+  }
+
+  // Serialize read/modify/write of preferences, without holding up network I/O.
+  Future<T> _withQueueLock<T>(Future<T> Function() action) {
+    final result = _queueTail.then((_) => action());
+    _queueTail =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
 
   static const _storageKey = 'pending_community_uploads_v1';
   Timer? _timer;
   bool _processing = false;
 
   void start() {
-    _timer ??= Timer.periodic(
+    if (_timer != null) return;
+    WidgetsBinding.instance.addObserver(this);
+    _timer = Timer.periodic(
       const Duration(seconds: 30),
-      (_) => processPending(),
+      (_) => _retrySafely(),
     );
-    FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (user != null && !user.isAnonymous) processPending();
+    _auth = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null && !user.isAnonymous) _retrySafely();
     });
+    _retrySafely();
   }
+
+  void stop() {
+    _timer?.cancel();
+    _timer = null;
+    _auth?.cancel();
+    _auth = null;
+    WidgetsBinding.instance.removeObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _retrySafely();
+  }
+
+  Future<void> _retrySafely() async {
+    try {
+      await processPending();
+    } catch (_) {}
+  }
+
+  Future<List<PendingAttachment>> pendingFor(String userId) async =>
+      (await _withQueueLock(_load))
+          .where((item) =>
+              item.userId == userId &&
+              (item.projectId == null || item.projectId == _projectId()) &&
+              !item.completed)
+          .toList();
+  Stream<List<PendingAttachment>> watch(String userId) =>
+      Stream.multi((controller) {
+        var active = true;
+        var tail = Future<void>.value();
+        void update() {
+          tail = tail.then((_) async {
+            if (!active) return;
+            try {
+              final items = await pendingFor(userId);
+              if (active) controller.add(items);
+            } catch (e, s) {
+              if (active) controller.addError(e, s);
+            }
+          });
+        }
+
+        final sub = _changes.stream.listen((_) => update());
+        controller.onCancel = () {
+          active = false;
+          return sub.cancel();
+        };
+        update();
+      });
 
   Future<bool> uploadOrQueue({
     required String collection,
@@ -34,81 +127,139 @@ class PendingUploadService {
     required String kind,
     required SelectedUpload selected,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || user.isAnonymous) {
+    final result = await send(
+        collection: collection,
+        documentId: documentId,
+        kind: kind,
+        selected: selected);
+    if (result.state == PendingSendState.blocked) {
+      throw result.error ??
+          StateError(result.reason ?? 'No se pudo subir el archivo.');
+    }
+    return result.state == PendingSendState.queued;
+  }
+
+  Future<UploadSendResult> send(
+      {required String collection,
+      required String documentId,
+      required String kind,
+      required SelectedUpload selected}) async {
+    final userId = _currentUserId();
+    if (userId == null) {
       throw const FileUploadException(
           'Debes iniciar sesión para subir archivos.');
     }
     final item = await _persist(
-      collection: collection,
-      documentId: documentId,
-      kind: kind,
-      selected: selected,
-      userId: user.uid,
-    );
+        collection: collection,
+        documentId: documentId,
+        kind: kind,
+        selected: selected,
+        userId: userId);
+    return _attempt(item).timeout(foregroundWait,
+        onTimeout: () => const UploadSendResult(PendingSendState.queued));
+  }
+
+  Future<UploadSendResult> _attempt(PendingAttachment item) async {
     try {
-      await _upload(item);
-      await _remove(item);
-      return false;
-    } on FirebaseException catch (error) {
-      if (error.code == 'unauthorized' || error.code == 'permission-denied') {
-        await _remove(item);
-        rethrow;
-      }
-      return true;
-    } on SocketException {
-      return true;
+      await _deliverOnce(item);
+      return const UploadSendResult(PendingSendState.sent);
+    } catch (error) {
+      final blocked = !pendingFailureIsTemporary(error);
+      final reason = blocked ? pendingFailureReason(error) : null;
+      await _withQueueLock(() async {
+        final items = await _load();
+        await _save(items
+            .map((entry) => entry.id == item.id
+                ? PendingAttachment.fromJson(
+                    {...entry.toJson(), 'blocked': blocked, 'reason': reason})
+                : entry)
+            .toList());
+      });
+      return UploadSendResult(
+          blocked ? PendingSendState.blocked : PendingSendState.queued,
+          reason: reason,
+          error: error);
     }
   }
 
-  Future<void> processPending() async {
+  Future<void> processPending({bool retryBlocked = false}) async {
     if (_processing) return;
-    final current = FirebaseAuth.instance.currentUser;
-    if (current == null || current.isAnonymous) return;
+    final current = _currentUserId();
+    if (current == null) return;
     _processing = true;
     try {
-      final items = await _load();
-      for (final item in items.where((value) => value.userId == current.uid)) {
-        try {
-          await _upload(item);
-          await _remove(item);
-        } on FirebaseException catch (error) {
-          if (error.code == 'unauthorized' ||
-              error.code == 'permission-denied') {
-            await _remove(item);
-          }
-        } on SocketException {
-          break;
-        }
+      final items = (await _withQueueLock(_load)).where((item) =>
+          item.userId == current &&
+          (item.projectId == null || item.projectId == _projectId()));
+      for (final item in items) {
+        if (_currentUserId() != current) break;
+        if (item.blocked && !item.completed && !retryBlocked) continue;
+        await _attempt(item).timeout(foregroundWait,
+            onTimeout: () => const UploadSendResult(PendingSendState.queued));
       }
     } finally {
       _processing = false;
     }
   }
 
-  Future<_PendingUpload> _persist({
+  Future<PendingAttachment> _persist({
     required String collection,
     required String documentId,
     required String kind,
     required SelectedUpload selected,
     required String userId,
   }) async {
+    if (!const ['projects', 'reports', 'events'].contains(collection) ||
+        !RegExp(r'^[a-zA-Z0-9_-]{1,128}$').hasMatch(documentId) ||
+        !(kind == 'photos' || (collection == 'events' && kind == 'minutes'))) {
+      throw const FileUploadException('El destino del archivo no es válido.');
+    }
+    final extension = selected.name.split('.').last.toLowerCase();
+    final limit = kind == 'minutes'
+        ? FileService.maxDocumentBytes
+        : FileService.maxImageBytes;
+    if (!(kind == 'minutes'
+            ? FileService.documentExtensions
+            : FileService.imageExtensions)
+        .contains(extension)) {
+      throw const FileUploadException('El formato del archivo no es válido.');
+    }
+    final bytes = selected.file.bytes;
     final sourcePath = selected.file.path;
-    if (sourcePath == null) {
+    if (sourcePath == null && bytes == null) {
       throw const FileUploadException(
         'No se pudo conservar el archivo para reintentar la carga.',
       );
     }
+    final size = bytes?.length ?? await File(sourcePath!).length();
+    if (size > limit) {
+      throw FileUploadException(
+          'El archivo no puede superar ${limit ~/ (1024 * 1024)} MB.');
+    }
+    final project = _projectId();
     final directory = Directory(
-      '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}pending_uploads',
+      '${(await _supportDirectory()).path}${Platform.pathSeparator}pending_uploads${Platform.pathSeparator}${project.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')}',
     );
     await directory.create(recursive: true);
     final safeName = selected.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    final id = '${DateTime.now().microsecondsSinceEpoch}_$userId';
-    final saved = await File(sourcePath).copy(
-      '${directory.path}${Platform.pathSeparator}${id}_$safeName',
-    );
-    final item = _PendingUpload(
+    final random = Random.secure();
+    final id = List.generate(
+            16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'))
+        .join();
+    final saved =
+        File('${directory.path}${Platform.pathSeparator}${id}_$safeName');
+    if (bytes != null) {
+      await saved.writeAsBytes(bytes, flush: true);
+    } else {
+      await File(sourcePath!).copy(saved.path);
+      final handle = await saved.open(mode: FileMode.append);
+      await handle.flush();
+      await handle.close();
+    }
+    if (_currentUserId() != userId) {
+      throw StateError('La cuenta del envío cambió.');
+    }
+    final item = PendingAttachment(
       id: id,
       collection: collection,
       documentId: documentId,
@@ -116,104 +267,89 @@ class PendingUploadService {
       localPath: saved.path,
       name: selected.name,
       userId: userId,
+      projectId: project,
     );
-    final items = await _load()
-      ..add(item);
-    await _save(items);
+    await _withQueueLock(() async {
+      final items = await _load()
+        ..add(item);
+      await _save(items);
+    });
     return item;
   }
 
-  Future<void> _upload(_PendingUpload item) async {
-    final selected = SelectedUpload(
-      PlatformFile(
-        name: item.name,
-        path: item.localPath,
-        size: await File(item.localPath).length(),
-      ),
-    );
-    final uploaded = await FileService.upload(
-      selected: selected,
-      folder: '${item.collection}/${item.documentId}/${item.kind}',
-      uploadedBy: item.userId,
-    );
-    await FirebaseFirestore.instance
-        .collection(item.collection)
-        .doc(item.documentId)
-        .collection(item.kind)
-        .add({
-      'url': uploaded.url,
-      'storagePath': uploaded.storagePath,
-      'name': item.name,
-      'contentType': item.name.toLowerCase().endsWith('.pdf')
-          ? 'application/pdf'
-          : 'image',
-      'uploadedBy': item.userId,
-      'createdAt': FieldValue.serverTimestamp(),
+  Future<void> _deliverOnce(PendingAttachment item) {
+    final existing = _inFlight[item.id];
+    if (existing != null) return existing;
+    final operation = Future<void>(() async {
+      try {
+        // A background snapshot may still contain an item already completed by
+        // the foreground. Consult the queue again before touching the network.
+        final current = await _withQueueLock(() async {
+          final matches = (await _load()).where((entry) => entry.id == item.id);
+          return matches.isEmpty ? null : matches.first;
+        });
+        if (current == null) return;
+        if (_currentUserId() != current.userId) {
+          throw StateError('La cuenta del envío cambió.');
+        }
+        if (current.projectId != null && current.projectId != _projectId()) {
+          throw StateError('El proyecto del envío cambió.');
+        }
+        if (!current.completed) {
+          await _delivery.deliver(current);
+          await _withQueueLock(() async {
+            final items = await _load();
+            await _save(items
+                .map((entry) => entry.id == current.id
+                    ? PendingAttachment.fromJson(
+                        {...entry.toJson(), 'completed': true})
+                    : entry)
+                .toList());
+          });
+        }
+        await _remove(current);
+      } finally {
+        _inFlight.remove(item.id);
+      }
     });
+    _inFlight[item.id] = operation;
+    return operation;
   }
 
-  Future<List<_PendingUpload>> _load() async {
+  Future<List<PendingAttachment>> _load() async {
     final preferences = await SharedPreferences.getInstance();
     final raw = preferences.getString(_storageKey);
     if (raw == null || raw.isEmpty) return [];
     return (jsonDecode(raw) as List)
-        .map((value) => _PendingUpload.fromJson(value as Map<String, dynamic>))
+        .map((value) =>
+            PendingAttachment.fromJson(value as Map<String, dynamic>))
         .toList();
   }
 
-  Future<void> _save(List<_PendingUpload> items) async {
+  Future<void> _save(List<PendingAttachment> items) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(
+    final saved = await preferences.setString(
       _storageKey,
       jsonEncode(items.map((item) => item.toJson()).toList()),
     );
+    if (!saved) {
+      throw const FileSystemException(
+          'No se pudo guardar el adjunto pendiente.');
+    }
+    _changes.add(null);
   }
 
-  Future<void> _remove(_PendingUpload item) async {
-    final items = await _load()
-      ..removeWhere((value) => value.id == item.id);
-    await _save(items);
+  Future<void> _remove(PendingAttachment item) async {
+    await _withQueueLock(() async {
+      final items = await _load()
+        ..removeWhere((value) => value.id == item.id);
+      await _save(items);
+    });
     final file = File(item.localPath);
-    if (await file.exists()) await file.delete();
+    try {
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // The cloud save is confirmed; a local cleanup error is not a failed upload.
+    }
   }
-}
-
-class _PendingUpload {
-  const _PendingUpload({
-    required this.id,
-    required this.collection,
-    required this.documentId,
-    required this.kind,
-    required this.localPath,
-    required this.name,
-    required this.userId,
-  });
-
-  final String id;
-  final String collection;
-  final String documentId;
-  final String kind;
-  final String localPath;
-  final String name;
-  final String userId;
-
-  factory _PendingUpload.fromJson(Map<String, dynamic> json) => _PendingUpload(
-        id: json['id'] as String,
-        collection: json['collection'] as String,
-        documentId: json['documentId'] as String,
-        kind: json['kind'] as String,
-        localPath: json['localPath'] as String,
-        name: json['name'] as String,
-        userId: json['userId'] as String,
-      );
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'collection': collection,
-        'documentId': documentId,
-        'kind': kind,
-        'localPath': localPath,
-        'name': name,
-        'userId': userId,
-      };
 }

@@ -1,15 +1,19 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import '../services/pending_send.dart';
+import 'upload_error_notice.dart';
 
 class ContentCommentComposer extends StatefulWidget {
   const ContentCommentComposer({
     super.key,
-    required this.onSend,
+    this.onSend,
+    this.onSendPending,
     this.enabled = true,
     this.projectStyle = false,
-  });
+  }) : assert((onSend == null) != (onSendPending == null));
 
-  final Future<void> Function(String text) onSend;
+  final Future<void> Function(String text)? onSend;
+  final Future<PendingSendResult> Function(String text)? onSendPending;
   final bool enabled;
   final bool projectStyle;
 
@@ -83,11 +87,29 @@ class _ContentCommentComposerState extends State<ContentCommentComposer> {
       _error = null;
     });
     try {
-      await widget.onSend(text);
+      final pendingSend = widget.onSendPending;
+      final PendingSendResult? result;
+      if (pendingSend != null) {
+        result = await pendingSend(text);
+      } else {
+        await widget.onSend!(text);
+        result = null;
+      }
       if (mounted) {
         _controller.clear();
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Comentario publicado.')));
+        if (result == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Comentario publicado.')));
+        } else if (result.state == PendingSendState.blocked) {
+          showUploadError(context,
+              'Comentario guardado en este dispositivo. ${result.reason} Revisa los pendientes.');
+        } else {
+          showSuccessNotice(
+              context,
+              result.state == PendingSendState.sent
+                  ? 'Comentario publicado.'
+                  : 'Comentario guardado. Se enviará cuando haya conexión.');
+        }
       }
     } catch (error) {
       if (mounted) {

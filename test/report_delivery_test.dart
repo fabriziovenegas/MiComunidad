@@ -64,6 +64,7 @@ class DeliveryDocument extends Mock
 }
 
 class DeliveryStorage extends Mock implements FirebaseStorage {
+  final contentTypes = <String, String?>{};
   final metadata = <String, Map<String, String>>{};
   final writes = <String>[];
   Object? lostPutAcknowledgement;
@@ -96,6 +97,7 @@ class DeliveryReference extends Mock implements Reference {
         }
         expect(await file.exists(), true);
         db.writes.add(fullPath);
+        db.contentTypes[fullPath] = metadata?.contentType;
         db.metadata[fullPath] = metadata!.customMetadata!;
         if (db.lostPutAcknowledgement != null) throw db.lostPutAcknowledgement!;
       });
@@ -235,6 +237,20 @@ void main() {
     await sender.ensurePhoto(report, photo);
     expect(storage.writes, [report.photoStoragePath]);
     expect(db.writes, ['reports/stable/photos/stable']);
+  });
+  test('WEBP is uploaded as image/webp and keeps one stable destination',
+      () async {
+    seed();
+    report = PendingReport(
+        id: 'stable',
+        userId: 'owner',
+        fields: reportFields,
+        photoName: 'photo.WEBP');
+    await sender.ensurePhoto(report, photo);
+    await sender.ensurePhoto(report, photo);
+    expect(storage.writes, [report.photoStoragePath]);
+    expect(storage.contentTypes[report.photoStoragePath], 'image/webp');
+    expect(db.rows['reports/stable/photos/stable']!['contentType'], 'image');
   });
   test('lost Storage acknowledgement does not upload a second file', () async {
     seed();

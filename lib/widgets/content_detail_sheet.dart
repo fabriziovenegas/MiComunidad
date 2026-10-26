@@ -12,6 +12,10 @@ import 'upload_picker.dart';
 import 'upload_error_notice.dart';
 import 'content_information.dart';
 import 'project_presentation.dart';
+import 'agenda_attachments.dart';
+import '../services/pending_content_service.dart';
+import 'pending_content_notice.dart';
+import 'pending_attachments_notice.dart';
 
 class ContentDetailSheet extends StatefulWidget {
   const ContentDetailSheet(
@@ -24,6 +28,7 @@ class ContentDetailSheet extends StatefulWidget {
       this.allowMinutes = false,
       this.readOnly = false,
       this.allowCommentsWhenReadOnly = false,
+      this.pendingContent,
       this.footer});
   final String collection;
   final String documentId;
@@ -34,6 +39,7 @@ class ContentDetailSheet extends StatefulWidget {
   final bool readOnly;
   final bool allowCommentsWhenReadOnly;
   final Widget? footer;
+  final PendingContentService? pendingContent;
   @override
   State<ContentDetailSheet> createState() => _ContentDetailSheetState();
 }
@@ -42,6 +48,9 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
   bool _busy = false;
   String? _uploadMessage;
   bool _uploadFailed = false;
+  String? _uploadKind;
+  PendingContentService get _outbox =>
+      widget.pendingContent ?? PendingContentService.instance;
   bool get _canAddComments =>
       widget.user.isApproved &&
       (!widget.readOnly ||
@@ -66,24 +75,31 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
       _busy = true;
       _uploadMessage = null;
       _uploadFailed = false;
+      _uploadKind = kind;
     });
     try {
-      final queued = await CommunityService.instance.addAttachment(
+      final result = await CommunityService.instance.addAttachment(
           collection: widget.collection,
           documentId: widget.documentId,
           kind: kind,
           selected: selected);
       if (mounted) {
+        final message = switch (result.state) {
+          PendingSendState.sent => 'Archivo compartido correctamente.',
+          PendingSendState.queued =>
+            'Archivo guardado en este dispositivo. El envío sigue pendiente y se reintentará con la app abierta.',
+          PendingSendState.blocked =>
+            'Archivo guardado en este dispositivo. ${result.reason} Revisa los pendientes.',
+        };
         setState(() {
-          _uploadMessage = queued
-              ? 'Sin conexión: el archivo quedó guardado y se subirá automáticamente.'
-              : 'Archivo compartido correctamente.';
+          _uploadMessage = message;
+          _uploadFailed = result.state == PendingSendState.blocked;
         });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(queued
-              ? 'Sin conexión: el archivo quedó guardado y se subirá automáticamente.'
-              : 'Archivo compartido.'),
-        ));
+        if (result.state == PendingSendState.blocked) {
+          showUploadError(context, message);
+        } else {
+          showSuccessNotice(context, message);
+        }
       }
     } catch (error) {
       if (mounted) {
@@ -98,17 +114,18 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
     }
   }
 
-  Future<void> _sendComment(String text) async {
+  Future<PendingSendResult> _sendComment(String text) async {
     if (_busy || !_canAddComments) {
       throw StateError('No se puede enviar un comentario en este momento.');
     }
     setState(() => _busy = true);
     try {
-      await CommunityService.instance.addComment(
+      return await _outbox.submit(
+          id: _outbox.newId(),
+          expectedUserId: widget.user.userId,
           collection: widget.collection,
-          documentId: widget.documentId,
-          text: text,
-          authorName: widget.user.nombre);
+          parentId: widget.documentId,
+          fields: {'text': text.trim(), 'authorName': widget.user.nombre});
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -117,7 +134,10 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
   @override
   Widget build(BuildContext context) {
     final isProject = widget.collection == 'projects';
-    final sectionStyle = isProject
+    final isReport = widget.collection == 'reports';
+    final isAgenda = widget.collection == 'events';
+    final photoLayout = isProject || isReport || isAgenda;
+    final sectionStyle = photoLayout
         ? Theme.of(context).textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.w700,
             color: ProjectVisuals.text,
@@ -130,13 +150,13 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
       builder: (context, controller) => ListView(
         controller: controller,
         padding: EdgeInsets.fromLTRB(
-            isProject ? 20 : 18,
+            photoLayout ? 20 : 18,
             0,
-            isProject ? 20 : 18,
-            26 + (isProject ? MediaQuery.viewInsetsOf(context).bottom : 0)),
+            photoLayout ? 20 : 18,
+            26 + (photoLayout ? MediaQuery.viewInsetsOf(context).bottom : 0)),
         children: [
           Text(widget.title,
-              style: isProject
+              style: photoLayout
                   ? Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w700, color: ProjectVisuals.text)
                   : Theme.of(context).textTheme.headlineSmall),
@@ -146,17 +166,24 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                 ? 'Puedes comentar. Los archivos permanecen en modo de solo lectura.'
                 : 'Vista de solo lectura.'),
           ],
-          SizedBox(height: isProject ? 20 : 16),
+          SizedBox(height: photoLayout ? 20 : 16),
           if (widget.data.isNotEmpty)
             ContentInformation(
-                collection: widget.collection, data: widget.data),
-          if (!isProject && !widget.readOnly)
+                collection: widget.collection,
+                data: widget.data,
+                reportId: isReport ? widget.documentId : null,
+                user: isReport ? widget.user : null),
+          PendingAttachmentsNotice(
+              collection: widget.collection,
+              documentId: widget.documentId,
+              userId: widget.user.userId),
+          if (!photoLayout && !widget.readOnly)
             Row(children: [
               Expanded(
                   child: OutlinedButton.icon(
                       onPressed: _busy ? null : _addImage,
                       icon: const Icon(Icons.add_photo_alternate),
-                      label: const Text('Subir JPG/PNG'))),
+                      label: const Text('Añadir fotografía'))),
               if (widget.allowMinutes) ...[
                 const SizedBox(width: 10),
                 Expanded(
@@ -166,7 +193,7 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                         label: const Text('Subir acta')))
               ]
             ]),
-          if (!isProject && _uploadMessage != null) ...[
+          if (!photoLayout && _uploadMessage != null) ...[
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
@@ -180,18 +207,25 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
               child: Text(_uploadMessage!),
             ),
           ],
-          if (!isProject) const SizedBox(height: 16),
-          Text(isProject ? 'Fotos compartidas' : 'Archivos compartidos',
+          if (!photoLayout) const SizedBox(height: 16),
+          Text(photoLayout ? 'Fotos compartidas' : 'Archivos compartidos',
               style: sectionStyle),
-          SizedBox(height: isProject ? 16 : 8),
-          _Attachments(
-              collection: widget.collection,
-              documentId: widget.documentId,
-              kind: 'photos',
-              user: widget.user,
-              readOnly: widget.readOnly,
-              showProjectEmptyState: isProject),
-          if (isProject && !widget.readOnly) ...[
+          SizedBox(height: photoLayout ? 16 : 8),
+          if (isAgenda)
+            AgendaAttachments(
+                eventId: widget.documentId,
+                kind: 'photos',
+                user: widget.user,
+                readOnly: widget.readOnly)
+          else
+            _Attachments(
+                collection: widget.collection,
+                documentId: widget.documentId,
+                kind: 'photos',
+                user: widget.user,
+                readOnly: widget.readOnly,
+                showPhotosEmptyState: photoLayout),
+          if (photoLayout && !widget.readOnly) ...[
             const SizedBox(height: 16),
             SizedBox(
                 width: double.infinity,
@@ -207,7 +241,9 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                   label: const Text('Añadir fotografía'),
                 )),
           ],
-          if (isProject && _uploadMessage != null) ...[
+          if (photoLayout &&
+              _uploadMessage != null &&
+              (!isAgenda || _uploadKind != 'minutes')) ...[
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
@@ -221,15 +257,57 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
               child: Text(_uploadMessage!),
             ),
           ],
-          if (widget.allowMinutes)
-            _Attachments(
-                collection: widget.collection,
-                documentId: widget.documentId,
-                kind: 'minutes',
-                user: widget.user,
-                readOnly: widget.readOnly),
-          Divider(height: isProject ? 44 : 28),
+          if (widget.allowMinutes) ...[
+            if (isAgenda) ...[
+              const Divider(height: 44),
+              Text('Actas y documentos', style: sectionStyle),
+              const SizedBox(height: 16),
+              AgendaAttachments(
+                  eventId: widget.documentId,
+                  kind: 'minutes',
+                  user: widget.user,
+                  readOnly: widget.readOnly),
+              if (!widget.readOnly) ...[
+                const SizedBox(height: 16),
+                SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                        onPressed: _busy ? null : _addMinutes,
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: ProjectVisuals.green,
+                            minimumSize: const Size(0, 52),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12))),
+                        icon: const Icon(Icons.upload_file),
+                        label: const Text('Adjuntar acta'))),
+              ],
+              if (_uploadKind == 'minutes' && _uploadMessage != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                        color: _uploadFailed
+                            ? Theme.of(context).colorScheme.errorContainer
+                            : Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12)),
+                    child: Text(_uploadMessage!)),
+              ],
+            ] else
+              _Attachments(
+                  collection: widget.collection,
+                  documentId: widget.documentId,
+                  kind: 'minutes',
+                  user: widget.user,
+                  readOnly: widget.readOnly),
+          ],
+          Divider(height: photoLayout ? 44 : 28),
           Text('Comentarios', style: sectionStyle),
+          PendingContentNotice(
+              userId: widget.user.userId,
+              collection: widget.collection,
+              parentId: widget.documentId,
+              service: _outbox),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: CommunityService.instance
                 .comments(widget.collection, widget.documentId),
@@ -269,7 +347,9 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           ),
           if (_canAddComments)
             ContentCommentComposer(
-                enabled: !_busy, onSend: _sendComment, projectStyle: isProject),
+                enabled: !_busy,
+                onSendPending: _sendComment,
+                projectStyle: photoLayout),
           if (widget.footer != null) ...[
             const SizedBox(height: 24),
             widget.footer!,
@@ -314,24 +394,24 @@ class _Attachments extends StatelessWidget {
       required this.kind,
       required this.user,
       required this.readOnly,
-      this.showProjectEmptyState = false});
+      this.showPhotosEmptyState = false});
   final String collection;
   final String documentId;
   final String kind;
   final AppUser user;
   final bool readOnly;
-  final bool showProjectEmptyState;
+  final bool showPhotosEmptyState;
   @override
   Widget build(BuildContext context) =>
       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream:
             CommunityService.instance.attachments(collection, documentId, kind),
         builder: (context, snapshot) {
-          if (showProjectEmptyState && snapshot.hasError) {
+          if (showPhotosEmptyState && snapshot.hasError) {
             return Text('No se pudieron cargar las fotos.',
                 style: TextStyle(color: Theme.of(context).colorScheme.error));
           }
-          if (showProjectEmptyState && !snapshot.hasData) {
+          if (showPhotosEmptyState && !snapshot.hasData) {
             return const SizedBox(
                 height: 80,
                 child: Center(
@@ -340,7 +420,7 @@ class _Attachments extends StatelessWidget {
           }
           final docs = snapshot.data?.docs ?? const [];
           if (docs.isEmpty) {
-            return showProjectEmptyState
+            return showPhotosEmptyState
                 ? const ProjectPhotosEmptyState()
                 : const SizedBox.shrink();
           }

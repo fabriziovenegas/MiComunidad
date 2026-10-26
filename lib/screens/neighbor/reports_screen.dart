@@ -9,18 +9,26 @@ import '../../widgets/content_detail_sheet.dart';
 import '../../widgets/report_detail_sheet.dart';
 import '../../widgets/report_edit_dialog.dart';
 import '../../widgets/report_status_dialog.dart';
+import '../../widgets/report_presentation.dart';
 import '../../widgets/upload_picker.dart';
 import '../../widgets/current_report_author_name.dart';
 import '../../utils/text_encoding.dart';
 import '../../services/pending_report_service.dart';
 import '../../widgets/pending_reports_notice.dart';
+import '../../widgets/pending_content_notice.dart';
+import '../../services/pending_content_service.dart';
 import '../../widgets/form_submission_guard.dart';
 import '../../widgets/upload_error_notice.dart';
 
 class ReportsScreen extends StatefulWidget {
-  const ReportsScreen({super.key, required this.user, this.pendingReports});
+  const ReportsScreen(
+      {super.key,
+      required this.user,
+      this.pendingReports,
+      this.pendingContent});
   final AppUser user;
   final PendingReportService? pendingReports;
+  final PendingContentService? pendingContent;
   @override
   State<ReportsScreen> createState() => _ReportsScreenState();
 }
@@ -169,7 +177,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                           icon: const Icon(
                                               Icons.add_photo_alternate),
                                           label: Text(image?.name ??
-                                              'Adjuntar JPG/PNG (opcional)')),
+                                              'Añadir fotografía (opcional)')),
                                       const SizedBox(height: 8),
                                       const Align(
                                         alignment: Alignment.centerLeft,
@@ -296,9 +304,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   static String _label(String value) => switch (value) {
-        'en_revision' => 'En Revisión',
-        'pendiente' => 'Por Atender',
-        'en_proceso' => 'En Proceso',
+        'en_revision' => 'En revisión',
+        'pendiente' => 'Por atender',
+        'en_proceso' => 'En proceso',
         'resuelto' => 'Resuelto',
         'rechazado' => 'Rechazado',
         'historial' => 'Historial',
@@ -381,6 +389,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      backgroundColor: ReportVisuals.sheetBackground,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       builder: (sheetContext) {
         final canChangeStatus = canAdminChangeReportStatus(widget.user, data);
         final footer = canChangeStatus || canDeletePermanently
@@ -495,6 +506,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             return ListView(padding: const EdgeInsets.all(14), children: [
               PendingReportsNotice(
                   userId: widget.user.userId, service: _outbox),
+              PendingCollectionNotice(
+                  userId: widget.user.userId,
+                  collection: 'reports',
+                  service: widget.pendingContent),
               const Text('No se pudieron cargar los reportes.'),
             ]);
           }
@@ -502,6 +517,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             return Column(children: [
               PendingReportsNotice(
                   userId: widget.user.userId, service: _outbox),
+              PendingCollectionNotice(
+                  userId: widget.user.userId,
+                  collection: 'reports',
+                  service: widget.pendingContent),
               const Expanded(child: Center(child: CircularProgressIndicator())),
             ]);
           }
@@ -554,6 +573,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 const Text('Registra incidencias y sigue su atención.'),
                 PendingReportsNotice(
                     userId: widget.user.userId, service: _outbox),
+                PendingCollectionNotice(
+                    userId: widget.user.userId,
+                    collection: 'reports',
+                    service: widget.pendingContent),
                 const SizedBox(height: 14),
                 if (showPending) ...[
                   _PendingReports(
@@ -592,82 +615,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       'documentId': document.id,
                     };
                     final status = _displayStatus(data);
-                    final moderationReason =
-                        readableText(data['moderationReason']).trim();
-                    return Card(
-                        child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () => _openReportDetails(document, data),
-                            child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(children: [
-                                        Chip(label: Text(_label(status))),
-                                        const SizedBox(width: 8),
-                                        Chip(
-                                            label: Text(_label(
-                                                data['priority'] as String? ??
-                                                    'media'))),
-                                        const Spacer(),
-                                        if (_canManageReport(data))
-                                          IconButton(
-                                              tooltip: _canEditContent(data)
-                                                  ? 'Editar mi reporte'
-                                                  : 'Actualizar reporte',
-                                              onPressed: () =>
-                                                  _showReportActions(
-                                                      document, data),
-                                              icon: const Icon(
-                                                  Icons.edit_outlined)),
-                                      ]),
-                                      Text(
-                                          readableText(data['title']).isEmpty
-                                              ? 'Reporte'
-                                              : readableText(data['title']),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge),
-                                      const SizedBox(height: 6),
-                                      Text(readableText(data['description']),
-                                          maxLines: 3,
-                                          overflow: TextOverflow.ellipsis),
-                                      if (status == 'rechazado') ...[
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Motivo: ${moderationReason.isEmpty ? 'No se indicó un motivo.' : moderationReason}',
-                                          style: TextStyle(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .error,
-                                          ),
-                                        ),
-                                      ],
-                                      const SizedBox(height: 10),
-                                      Row(children: [
-                                        const Icon(Icons.person_outline,
-                                            size: 18),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                            child: CurrentReportAuthorName(
-                                          key: ValueKey(document.id),
-                                          reportId: document.id,
-                                          authorId:
-                                              readableText(data['createdBy']),
-                                          savedName: readableText(
-                                              data['createdByName']),
-                                          viewer: widget.user,
-                                        )),
-                                        const Icon(Icons.location_on_outlined,
-                                            size: 18),
-                                        const SizedBox(width: 4),
-                                        Flexible(
-                                            child: Text(
-                                                readableText(data['location'])))
-                                      ])
-                                    ]))));
+                    return ReportPreviewCard(
+                      data: data,
+                      status: status,
+                      onOpen: () => _openReportDetails(document, data),
+                      onEdit: _canEditContent(data)
+                          ? () => _showReportActions(document, data)
+                          : null,
+                      author: CurrentReportAuthorName(
+                        key: ValueKey(document.id),
+                        reportId: document.id,
+                        authorId: readableText(data['createdBy']),
+                        savedName: readableText(data['createdByName']),
+                        viewer: widget.user,
+                      ),
+                    );
                   })
               ]);
         },
@@ -717,6 +679,10 @@ class _PendingReports extends StatelessWidget {
                     context: context,
                     isScrollControlled: true,
                     showDragHandle: true,
+                    backgroundColor: ReportVisuals.sheetBackground,
+                    shape: const RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.vertical(top: Radius.circular(28))),
                     builder: (_) => ReportDetailSheet(
                       reportId: report.id,
                       data: data,

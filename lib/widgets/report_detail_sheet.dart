@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import '../services/community_service.dart';
 import '../utils/text_encoding.dart';
 import '../models/user_model.dart';
-import 'current_report_author_name.dart';
 import 'image_gallery_screen.dart';
-import 'expandable_description.dart';
+import 'report_presentation.dart';
+import 'project_presentation.dart' show ProjectPhotosEmptyState;
 
 class ReportDetailSheet extends StatelessWidget {
   const ReportDetailSheet({
@@ -25,21 +25,6 @@ class ReportDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = _text(data['title'], fallback: 'Reporte');
-    final description = _text(
-      data['description'],
-      fallback: 'Sin descripción.',
-    );
-    final location = _text(data['location'], fallback: 'No especificada');
-    final category = _label(data['category'], fallback: 'No especificada');
-    final priority = _label(data['priority'], fallback: 'No especificada');
-    final author = _text(data['createdByName'], fallback: 'Vecino');
-    final rejected = data['moderationStatus'] == 'rechazado' ||
-        data['status'] == 'rechazado';
-    final rejectionReason = _text(
-      data['moderationReason'],
-      fallback: 'No se indicó un motivo.',
-    );
-
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: .82,
@@ -48,49 +33,18 @@ class ReportDetailSheet extends StatelessWidget {
         controller: controller,
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
         children: [
-          Text(title, style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 18),
-          _DetailField(
-            icon: Icons.description_outlined,
-            label: 'Descripción',
-            value: description,
-            content: ExpandableDescription(text: description),
-          ),
-          _DetailField(
-            icon: Icons.location_on_outlined,
-            label: 'Ubicación',
-            value: location,
-          ),
-          _DetailField(
-            icon: Icons.category_outlined,
-            label: 'Categoría',
-            value: category,
-          ),
-          _DetailField(
-            icon: Icons.priority_high,
-            label: 'Prioridad',
-            value: priority,
-          ),
-          _DetailField(
-            icon: Icons.person_outline,
-            label: 'Reportado por',
-            value: author,
-            content: CurrentReportAuthorName(
-              reportId: reportId,
-              authorId: _text(data['createdBy'], fallback: ''),
-              savedName: author,
-              viewer: user,
-            ),
-          ),
-          if (rejected)
-            _DetailField(
-              icon: Icons.cancel_outlined,
-              label: 'Motivo del rechazo',
-              value: rejectionReason,
-            ),
+          Text(title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700, color: ReportVisuals.text)),
+          const SizedBox(height: 20),
+          ReportInformation(data: data, reportId: reportId, user: user),
           const SizedBox(height: 8),
-          Text('Fotografías', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 10),
+          Text('Fotos compartidas',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
+                  color: ReportVisuals.text)),
+          const SizedBox(height: 16),
           _ReportPhotos(reportId: reportId),
           if (footer != null) ...[
             const SizedBox(height: 24),
@@ -105,52 +59,6 @@ class ReportDetailSheet extends StatelessWidget {
     final text = readableText(value).trim();
     return text.isEmpty ? fallback : text;
   }
-
-  static String _label(Object? value, {required String fallback}) {
-    final text = readableText(value).trim();
-    if (text.isEmpty) return fallback;
-    return text
-        .split('_')
-        .where((part) => part.isNotEmpty)
-        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
-        .join(' ');
-  }
-}
-
-class _DetailField extends StatelessWidget {
-  const _DetailField({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.content,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final Widget? content;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 21, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label, style: Theme.of(context).textTheme.labelLarge),
-                  const SizedBox(height: 3),
-                  content ?? Text(value),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
 }
 
 class _ReportPhotos extends StatelessWidget {
@@ -180,7 +88,7 @@ class _ReportPhotos extends StatelessWidget {
               .toList();
 
           if (urls.isEmpty) {
-            return const Text('Este reporte no tiene fotografías adjuntas.');
+            return const ProjectPhotosEmptyState();
           }
 
           return SizedBox(

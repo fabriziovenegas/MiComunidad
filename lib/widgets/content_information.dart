@@ -1,133 +1,31 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import '../utils/text_encoding.dart';
-import 'expandable_description.dart';
+import '../models/user_model.dart';
 import 'project_presentation.dart';
+import 'report_presentation.dart';
+import 'agenda_presentation.dart';
 
-/// A compact reading section; the preview's title and controls stay outside it.
-/// Only existing, explicitly selected content fields are displayed.
+/// Only explicitly selected reading fields are displayed by each content type.
 class ContentInformation extends StatelessWidget {
   const ContentInformation({
     super.key,
     required this.collection,
     required this.data,
+    this.reportId,
+    this.user,
   });
 
   final String collection;
   final Map<String, dynamic> data;
+  final String? reportId;
+  final AppUser? user;
 
   @override
   Widget build(BuildContext context) {
     if (collection == 'projects') return ProjectInformation(data: data);
-    if (!const ['reports', 'events'].contains(collection)) {
-      return const SizedBox.shrink();
-    }
-    final description = readableText(data['description']).trim();
-    final location = readableText(data['location']).trim();
-    final badges = <String>[];
     if (collection == 'reports') {
-      final status = switch (data['status']) {
-        'pendiente' || 'en_revision' => 'Por atender',
-        'en_proceso' => 'En proceso',
-        'resuelto' => 'Resuelto',
-        _ => null,
-      };
-      final category = switch (data['category']) {
-        'seguridad' => 'Seguridad',
-        'obras' => 'Obras',
-        'iluminacion' => 'Iluminación',
-        'limpieza' => 'Limpieza',
-        'otro' => 'Otro',
-        _ => null,
-      };
-      final priority = switch (data['priority']) {
-        'baja' => 'Prioridad baja',
-        'media' => 'Prioridad media',
-        'alta' => 'Prioridad alta',
-        _ => null,
-      };
-      badges.addAll([
-        if (status != null) status,
-        if (category != null) category,
-        if (priority != null) priority
-      ]);
+      return ReportInformation(data: data, reportId: reportId, user: user);
     }
-    final rawDate = data[collection == 'events' ? 'eventDate' : 'createdAt'];
-    final date = rawDate is Timestamp
-        ? rawDate.toDate()
-        : rawDate is DateTime
-            ? rawDate
-            : null;
-    // The agenda needs its full date/time; reports benefit from their register
-    // date. Project details already have state/progress, so avoid extra clutter.
-    final showDate = date != null && collection != 'projects';
-    if (description.isEmpty &&
-        location.isEmpty &&
-        badges.isEmpty &&
-        !showDate) {
-      return const SizedBox.shrink();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (badges.isNotEmpty) ...[
-          Text(
-            badges.join(' • '),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-          ),
-          const SizedBox(height: 16),
-        ],
-        if (description.isNotEmpty) ...[
-          ExpandableDescription(
-              text: description,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyLarge
-                  ?.copyWith(height: 1.45)),
-          const SizedBox(height: 16),
-        ],
-        if (location.isNotEmpty) ...[
-          _InformationLine(
-              icon: Icons.location_on_outlined,
-              label: 'Ubicación',
-              value: location),
-          if (showDate) const SizedBox(height: 12),
-        ],
-        if (showDate) ...[
-          _InformationLine(
-            icon: Icons.calendar_today_outlined,
-            label: collection == 'events' ? 'Fecha y hora' : 'Registrado',
-            value:
-                '${collection == 'events' ? '' : 'Registrado el '}${DateFormat(collection == 'events' ? 'dd/MM/yyyy • HH:mm' : 'dd/MM/yyyy').format(date)}',
-          ),
-        ],
-        const SizedBox(height: 24),
-      ],
-    );
+    if (collection == 'events') return AgendaInformation(data: data);
+    return const SizedBox.shrink();
   }
-}
-
-class _InformationLine extends StatelessWidget {
-  const _InformationLine(
-      {required this.icon, required this.label, required this.value});
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon,
-              size: 20,
-              color: Theme.of(context).colorScheme.primary,
-              semanticLabel: label),
-          const SizedBox(width: 8),
-          Expanded(child: Text(value)),
-        ],
-      );
 }

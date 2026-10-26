@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import 'pending_report_service.dart';
+import 'file_service.dart';
 
 abstract class ReportDelivery {
   Future<void> ensureReport(PendingReport item);
@@ -133,11 +134,10 @@ class FirebaseReportDelivery implements ReportDelivery {
     }
     if (!exists) {
       _checkAccount(item);
-      final extension = item.photoName!.split('.').last.toLowerCase();
       await reference.putFile(
           photo,
           SettableMetadata(
-            contentType: extension == 'png' ? 'image/png' : 'image/jpeg',
+            contentType: FileService.contentTypeForName(item.photoName!),
             customMetadata: {
               'uploadedBy': item.userId,
               'reportUploadId': item.id
