@@ -17,7 +17,8 @@ import 'report_delivery_test.dart'
         DeliveryDatabase,
         DeliveryStorage,
         DeliveryCollection,
-        DeliveryDocument;
+        DeliveryDocument,
+        fakeAttachmentRegistration;
 import 'content_creation_draft_test.dart' show DraftSnapshot;
 
 class UploadDatabase extends DeliveryDatabase {
@@ -138,6 +139,7 @@ void main() {
         firestore: database,
         storage: storage,
         currentUserId: () => currentUser,
+        registerAttachment: fakeAttachmentRegistration(database, storage),
         refreshAuth: () async {});
     service = makeService(delivery);
   });

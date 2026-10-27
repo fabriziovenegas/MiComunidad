@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../utils/text_encoding.dart';
 import 'expandable_description.dart';
+import '../models/user_model.dart';
+import 'current_content_author_name.dart';
 
 /// Project-only presentation. These widgets never read or change stored records.
 class ProjectVisuals {
@@ -73,7 +75,10 @@ class ProjectPreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = readableText(data['title']).trim();
-    final location = readableText(data['location']).trim();
+    final description = readableText(data['description']).trim();
+    final savedLocation = readableText(data['location']).trim();
+    final location =
+        savedLocation.isEmpty ? 'Ubicación no indicada' : savedLocation;
     final progress = ProjectVisuals.progress(data['progress']);
     final status = ProjectVisuals.statusLabel(data['status']) ?? 'Pendiente';
     return Card(
@@ -109,47 +114,48 @@ class ProjectPreviewCard extends StatelessWidget {
                     child: badge),
               ]);
             }),
-            if (location.isNotEmpty || progress != null) ...[
-              const SizedBox(height: 12),
-              Row(children: [
-                Expanded(
-                    child: location.isEmpty
-                        ? const SizedBox.shrink()
-                        : Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.location_on_outlined,
-                                  size: 20,
-                                  color: ProjectVisuals.secondaryText),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                  child: Text(location,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.copyWith(
-                                              color: ProjectVisuals
-                                                  .secondaryText))),
-                            ],
-                          )),
-                if (progress != null) ...[
-                  const SizedBox(width: 12),
-                  Semantics(
-                    label:
-                        'Avance del proyecto: ${progress.round()} por ciento',
-                    excludeSemantics: true,
-                    child: Text('${progress.round()} %',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: ProjectVisuals.green,
-                                )),
-                  ),
-                ],
-              ]),
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: ProjectVisuals.secondaryText)),
             ],
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                  child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.location_on_outlined,
+                      size: 20, color: ProjectVisuals.secondaryText),
+                  const SizedBox(width: 6),
+                  Expanded(
+                      child: Text(location,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(color: ProjectVisuals.secondaryText))),
+                ],
+              )),
+              if (progress != null) ...[
+                const SizedBox(width: 12),
+                Semantics(
+                  label: 'Avance del proyecto: ${progress.round()} por ciento',
+                  excludeSemantics: true,
+                  child: Text('${progress.round()} %',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: ProjectVisuals.green,
+                          )),
+                ),
+              ],
+            ]),
             const SizedBox(height: 12),
             Divider(
                 height: 1,
@@ -186,8 +192,11 @@ class ProjectPreviewCard extends StatelessWidget {
 }
 
 class ProjectInformation extends StatelessWidget {
-  const ProjectInformation({super.key, required this.data});
+  const ProjectInformation(
+      {super.key, required this.data, this.projectId, this.user});
   final Map<String, dynamic> data;
+  final String? projectId;
+  final AppUser? user;
 
   @override
   Widget build(BuildContext context) {
@@ -195,10 +204,12 @@ class ProjectInformation extends StatelessWidget {
     final progress = ProjectVisuals.progress(data['progress']);
     final location = readableText(data['location']).trim();
     final description = readableText(data['description']).trim();
+    final hasCreator = projectId?.isNotEmpty == true;
     if (status == null &&
         progress == null &&
         location.isEmpty &&
-        description.isEmpty) {
+        description.isEmpty &&
+        !hasCreator) {
       return const SizedBox.shrink();
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -249,10 +260,19 @@ class ProjectInformation extends StatelessWidget {
                       .bodyLarge
                       ?.copyWith(color: ProjectVisuals.secondaryText))),
         ]),
+        SizedBox(height: hasCreator ? 12 : 24),
+      ],
+      if (hasCreator) ...[
+        ContentCreatorLine(
+            collection: 'projects',
+            contentId: projectId!,
+            data: data,
+            user: user),
         const SizedBox(height: 24),
       ],
       if (description.isNotEmpty) ...[
         ExpandableDescription(
+            heading: 'Descripción',
             text: description,
             style:
                 Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.45)),

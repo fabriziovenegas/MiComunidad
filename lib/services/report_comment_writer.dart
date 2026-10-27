@@ -46,7 +46,7 @@ class ReportCommentWriter {
       transaction.set(comment, {
         'text': value,
         'authorId': uid,
-        'authorName': authorName,
+        'authorName': profile.data()?['nombre'],
         'createdAt': FieldValue.serverTimestamp(),
       });
     });

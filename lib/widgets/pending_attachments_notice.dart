@@ -7,10 +7,12 @@ class PendingAttachmentsNotice extends StatefulWidget {
       {super.key,
       required this.collection,
       this.documentId,
+      this.kind,
       required this.userId,
       this.service});
   final String collection;
   final String? documentId;
+  final String? kind;
   final String userId;
   final PendingUploadService? service;
   @override
@@ -49,6 +51,7 @@ class _PendingAttachmentsNoticeState extends State<PendingAttachmentsNotice> {
         final items = (snapshot.data ?? [])
             .where((item) =>
                 item.collection == widget.collection &&
+                (widget.kind == null || item.kind == widget.kind) &&
                 (widget.documentId == null ||
                     item.documentId == widget.documentId))
             .toList();

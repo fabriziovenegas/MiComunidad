@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 
 import '../models/report_edit.dart';
 import '../utils/text_encoding.dart';
+import 'report_category.dart';
 
 export '../models/report_edit.dart' show ReportEditDraft;
 
@@ -109,11 +110,12 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       initialValue: _category,
+                      isExpanded: true,
                       decoration: const InputDecoration(labelText: 'Categoría'),
                       items: _categories
                           .map((value) => DropdownMenuItem(
                                 value: value,
-                                child: Text(_categoryLabel(value)),
+                                child: ReportCategoryLabel(category: value),
                               ))
                           .toList(),
                       onChanged: _busy || !_canEditContent
@@ -286,14 +288,6 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
       if (mounted) setState(() => _changingStatus = false);
     }
   }
-
-  static String _categoryLabel(String value) => switch (value) {
-        'seguridad' => 'Seguridad',
-        'obras' => 'Obras',
-        'iluminacion' => 'Iluminación',
-        'limpieza' => 'Limpieza',
-        _ => 'Otro',
-      };
 
   static String _priorityLabel(String value) => switch (value) {
         'alta' => 'Alta',

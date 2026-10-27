@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'core/firebase/firebase_emulator_config.dart';
+import 'core/firebase/app_check_config.dart';
 import 'firebase_options.dart';
 import 'services/pending_upload_service.dart';
 import 'services/pending_report_service.dart';
@@ -21,6 +22,7 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    await AppCheckConfig.initialize();
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
       cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,

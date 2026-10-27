@@ -1,3 +1,4 @@
+import 'private_storage_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -109,7 +110,7 @@ class _ReportPhotos extends StatelessWidget {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
+                  child: PrivateStorageImage(
                     urls[index],
                     width: 132,
                     height: 132,

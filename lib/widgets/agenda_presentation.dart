@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 
 import '../utils/text_encoding.dart';
 import 'expandable_description.dart';
+import '../models/user_model.dart';
+import 'current_content_author_name.dart';
 
 /// Presentation only: attachment kinds, stored dates and permissions stay intact.
 class AgendaVisuals {
@@ -168,8 +170,11 @@ class _AgendaDateBadge extends StatelessWidget {
 }
 
 class AgendaInformation extends StatelessWidget {
-  const AgendaInformation({super.key, required this.data});
+  const AgendaInformation(
+      {super.key, required this.data, this.eventId, this.user});
   final Map<String, dynamic> data;
+  final String? eventId;
+  final AppUser? user;
   @override
   Widget build(BuildContext context) {
     final date = AgendaVisuals.date(data['eventDate']);
@@ -190,9 +195,15 @@ class AgendaInformation extends StatelessWidget {
             child: Text(location)),
         const SizedBox(height: 12),
       ],
+      if (eventId?.isNotEmpty == true) ...[
+        ContentCreatorLine(
+            collection: 'events', contentId: eventId!, data: data, user: user),
+        const SizedBox(height: 12),
+      ],
       if (description.isNotEmpty) ...[
         const SizedBox(height: 8),
         ExpandableDescription(
+            heading: 'Descripción',
             text: description,
             style:
                 Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.45)),

@@ -3,9 +3,58 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function approved() { return signedIn() && profile().approvalStatus == 'aprobado' && profile().role in ['vecino', 'admin']; }
+    function approved() { return signedIn() && profile().approvalStatus == 'aprobado' && profile().role in ['vecino', 'admin'] && profile().get('profileWithdrawalInProgress', false) != true; }
     function admin() { return approved() && profile().role == 'admin'; }
     function owns(field) { return signedIn() && resource.data[field] == request.auth.uid; }
+    function text(value, limit, required) {
+      return value is string && value.size() <= limit
+        && (!required || value.matches('[\\s\\S]*\\S[\\s\\S]*'));
+    }
+    function validComment() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['text', 'authorId', 'authorName', 'createdAt'])
+        && data.keys().hasOnly(['text', 'authorId', 'authorName', 'createdAt'])
+        && data.authorId == request.auth.uid
+        && data.authorName == profile().nombre && text(data.authorName, 160, true)
+        && text(data.text, 1000, true) && data.createdAt == request.time;
+    }
+    function validProjectContent(data) {
+      return text(data.title, 160, true) && text(data.description, 4000, true)
+        && text(data.location, 300, false)
+        && data.progress is number && data.progress >= 0 && data.progress <= 100
+        && data.progress == int(data.progress)
+        && data.status in ['pendiente', 'en_proceso', 'finalizado'];
+    }
+    function validEventContent(data) {
+      return text(data.title, 160, true) && text(data.description, 4000, false)
+        && text(data.location, 300, false) && data.eventDate is timestamp;
+    }
+    function validProjectUpdate() {
+      let data = request.resource.data;
+      let changed = data.diff(resource.data).affectedKeys();
+      return (!changed.hasAny(['title']) || text(data.title, 160, true))
+        && (!changed.hasAny(['description']) || text(data.description, 4000, true))
+        && (!changed.hasAny(['location']) || text(data.location, 300, false))
+        && (!changed.hasAny(['progress']) || (data.progress is number && data.progress >= 0 && data.progress <= 100 && data.progress == int(data.progress)))
+        && (!changed.hasAny(['status']) || data.status in ['pendiente', 'en_proceso', 'finalizado']);
+    }
+    function validEventUpdate() {
+      let data = request.resource.data;
+      let changed = data.diff(resource.data).affectedKeys();
+      return (!changed.hasAny(['title']) || text(data.title, 160, true))
+        && (!changed.hasAny(['description']) || text(data.description, 4000, false))
+        && (!changed.hasAny(['location']) || text(data.location, 300, false))
+        && (!changed.hasAny(['eventDate']) || data.eventDate is timestamp);
+    }
+    function validReportContent(data) {
+      return text(data.title, 160, true) && text(data.description, 4000, true)
+        && text(data.location, 300, false)
+        && data.category in ['seguridad', 'obras', 'iluminacion', 'limpieza', 'otro']
+        && data.priority in ['baja', 'media', 'alta'];
+    }
+    function eventExists(eventId) {
+      return exists(/databases/$(database)/documents/events/$(eventId));
+    }
     function reportVisibleToMember(report) {
       return report.moderationStatus == 'aprobado'
         && report.status in ['pendiente', 'en_revision', 'en_proceso', 'resuelto'];
@@ -90,7 +139,7 @@ service cloud.firestore {
           'moderatedAt', 'updatedAt'
         ])
         && edited.moderationStatus in ['aprobado', 'rechazado']
-        && (edited.moderationReason == null || edited.moderationReason is string)
+        && (edited.moderationReason == null || text(edited.moderationReason, 1000, false))
         && edited.moderatedBy == request.auth.uid
         && edited.moderatedAt == request.time
         && edited.updatedAt == request.time;
@@ -107,26 +156,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if approved() && (request.auth.uid == userId || admin());
       allow create, delete: if false;
-      allow update: if approved()
-        && request.auth.uid == userId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'nombre',
-          'phone',
-          'photoUrl',
-          'address',
-          'timeLivingHere',
-          'reason',
-          'updatedAt'
-        ])
-        && request.resource.data.address is string
-        && request.resource.data.address.size() > 0
-        && request.resource.data.address.size() <= 300
-        && request.resource.data.timeLivingHere is string
-        && request.resource.data.timeLivingHere.size() > 0
-        && request.resource.data.timeLivingHere.size() <= 100
-        && request.resource.data.reason is string
-        && request.resource.data.reason.size() > 0
-        && request.resource.data.reason.size() <= 1000;
+      // updateOwnProfile validates and synchronizes all changes with Auth and
+      // request/DNI/email indexes. Direct updates would bypass that contract.
+      allow update: if false;
     }
 
     match /accessRequests/{requestId} {
@@ -140,27 +172,38 @@ service cloud.firestore {
 
     match /projects/{projectId} {
       allow read: if admin() || (approved() && activeProject(resource.data));
-      allow create, update, delete: if admin();
+      allow create: if admin()
+        && request.resource.data.keys().hasAll(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'createdBy', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'createdBy', 'createdAt', 'updatedAt'])
+        && validProjectContent(request.resource.data)
+        && request.resource.data.isTrashed == false
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
+      allow update: if admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'trashedAt', 'updatedAt'])
+        && validProjectUpdate()
+        && request.resource.data.isTrashed is bool
+        && ((request.resource.data.isTrashed == true && request.resource.data.trashedAt is timestamp)
+          || (request.resource.data.isTrashed == false && !request.resource.data.keys().hasAny(['trashedAt'])))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['trashedAt'])
+          || request.resource.data.get('trashedAt', request.time) == request.time)
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if admin() && resource.data.isTrashed == true;
       match /comments/{commentId} {
         allow read: if admin() || (approved() && activeProjectById(projectId));
         allow create: if approved()
           && activeProjectById(projectId)
-          && request.resource.data.authorId == request.auth.uid
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 1000;
+          && validComment();
         allow update: if false;
         allow delete: if admin()
           || (approved() && activeProjectById(projectId) && owns('authorId'));
       }
       match /photos/{fileId} {
         allow read: if admin() || (approved() && activeProjectById(projectId));
-        allow create: if approved()
-          && activeProjectById(projectId)
-          && request.resource.data.uploadedBy == request.auth.uid;
+        // Registration verifies the actual Storage object in a callable.
+        allow create: if false;
         allow update: if false;
-        allow delete: if admin()
-          || (approved() && activeProjectById(projectId) && owns('uploadedBy'));
+        allow delete: if admin();
       }
     }
 
@@ -170,12 +213,17 @@ service cloud.firestore {
         || reportOwnedByRequester(resource.data)
       ));
       allow create: if approved()
+        && request.resource.data.keys().hasAll(['title', 'description', 'location', 'category', 'priority', 'createdBy', 'status', 'moderationStatus', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['title', 'description', 'location', 'category', 'priority', 'createdBy', 'createdByName', 'status', 'moderationStatus', 'createdAt', 'updatedAt'])
         && request.resource.data.createdBy == request.auth.uid
+        && (!request.resource.data.keys().hasAny(['createdByName'])
+          || request.resource.data.createdByName == profile().nombre)
         && request.resource.data.status == 'pendiente'
         && request.resource.data.moderationStatus == 'pendiente'
         && request.resource.data.get('deletionInProgress', false) == false
-        && request.resource.data.title is string
-        && request.resource.data.description is string;
+        && validReportContent(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
       allow update: if (admin() && validReportDeletionStart())
         || (!reportBeingDeleted(resource.data) && ((admin()
         && (validReportStatusUpdate() || validReportModerationUpdate()))
@@ -191,53 +239,65 @@ service cloud.firestore {
         allow create: if approved()
           && reportExists(reportId)
           && reportAcceptsComments(reportById(reportId))
-          && request.resource.data.authorId == request.auth.uid
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 1000;
+          && validComment();
         allow update: if false;
-        allow delete: if admin() || owns('authorId');
+        allow delete: if admin() || (approved() && reportExists(reportId)
+          && reportAcceptsComments(reportById(reportId)) && owns('authorId'));
       }
       match /photos/{fileId} {
         allow read: if admin() || (approved() && (
           reportVisibleToMember(get(/databases/$(database)/documents/reports/$(reportId)).data)
           || reportOwnedByRequester(get(/databases/$(database)/documents/reports/$(reportId)).data)
         ));
-        allow create: if approved()
-          && reportExists(reportId)
-          && reportAcceptsPhotos(reportById(reportId))
-          && request.resource.data.uploadedBy == request.auth.uid;
+        allow create: if false;
         allow update: if false;
-        allow delete: if admin() || owns('uploadedBy');
+        allow delete: if admin();
       }
     }
 
     match /events/{eventId} {
       allow read: if approved();
-      allow create, update, delete: if admin();
+      allow create: if admin()
+        && request.resource.data.keys().hasAll(['title', 'description', 'location', 'eventDate', 'createdBy', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['title', 'description', 'location', 'eventDate', 'createdBy', 'createdAt', 'updatedAt'])
+        && validEventContent(request.resource.data)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
+      allow update: if admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'location', 'eventDate', 'updatedAt'])
+        && validEventUpdate() && request.resource.data.updatedAt == request.time;
+      allow delete: if admin();
       match /comments/{commentId} {
-        allow read: if approved();
-        allow create: if approved() && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000;
+        allow read: if approved() && (admin() || eventExists(eventId));
+        allow create: if approved() && eventExists(eventId) && validComment();
         allow update: if false;
-        allow delete: if admin() || owns('authorId');
+        allow delete: if admin() || (approved() && eventExists(eventId) && owns('authorId'));
       }
       match /photos/{fileId} {
-        allow read: if approved();
-        allow create: if approved() && request.resource.data.uploadedBy == request.auth.uid;
+        allow read: if approved() && (admin() || eventExists(eventId));
+        allow create: if false;
         allow update: if false;
-        allow delete: if admin() || owns('uploadedBy');
+        allow delete: if admin();
       }
       match /minutes/{fileId} {
-        allow read: if approved();
-        allow create: if approved() && request.resource.data.uploadedBy == request.auth.uid;
+        allow read: if approved() && (admin() || eventExists(eventId));
+        allow create: if false;
         allow update: if false;
-        allow delete: if admin() || owns('uploadedBy');
+        allow delete: if admin();
       }
     }
 
     match /mapPoints/{pointId} {
       allow read: if approved();
-      allow create, update, delete: if admin();
+      allow create: if admin()
+        && request.resource.data.keys().hasAll(['title', 'description', 'latitude', 'longitude', 'createdBy', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['title', 'description', 'latitude', 'longitude', 'createdBy', 'createdAt'])
+        && text(request.resource.data.title, 160, true) && text(request.resource.data.description, 4000, false)
+        && request.resource.data.latitude is number && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90
+        && request.resource.data.longitude is number && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180
+        && request.resource.data.createdBy == request.auth.uid && request.resource.data.createdAt == request.time;
+      allow update: if false;
+      allow delete: if admin();
     }
 
     match /notifications/{notificationId} {

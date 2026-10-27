@@ -105,7 +105,7 @@ test('pending submissions and profile corrections share the same DNI conflict ch
 
 test('invalid data and commit failures leave both the application and reservation unchanged', async () => {
   for (const patch of [{dni: 'invalid'}, {phone: 'short'}, {email: 'invalid'}, {name: ''},
-    {requestId: '../invalid'}, {address: ''}, {reason: 'x'.repeat(1001)}]) {
+    {requestId: '../invalid'}, {address: ''}, {reason: 'x'.repeat(1001)}, {timeLivingHere: 'invented'}]) {
     const f = fixture();
     await assert.rejects(f.identity.submitAccessRequest('anonymous-a', submission(patch)), {code: 'invalid-argument'});
     assert.equal(f.data.accessRequests.size, 0);
@@ -145,9 +145,9 @@ test('a linked approved account wins over newer rejected or pending duplicate re
     ]});
     const visible = (await f.identity.findRequestStatus('00000001')).request;
     assert.equal(visible.status, 'aprobado');
-    assert.equal(visible.name, 'Current Resident');
-    assert.equal(visible.email, 'cu****@***.com');
-    assert.deepEqual(Object.keys(visible).sort(), ['createdAt', 'email', 'name', 'rejectionReason', 'status']);
+    assert.equal(Object.hasOwn(visible, 'name'), false);
+    assert.equal(visible.email, 'cu****t@example.com');
+    assert.deepEqual(Object.keys(visible).sort(), ['createdAt', 'email', 'status']);
   }
 });
 
@@ -167,14 +167,17 @@ function endpoint(options = {}) {
     ...options.metadata};
   const handler = createAccessRequestSubmission({HttpsError,
     identity: {submitAccessRequest: async (uid, data) => {calls.push({uid, data}); return {requestId: data.requestId};}},
-    storage: () => ({bucket: () => ({file: (name) => ({name, getMetadata: async () => {
+    storage: () => ({bucket: () => ({file: (name) => ({name, bucket: {name: 'demo-documents.appspot.com'}, setMetadata: async () => {}, getMetadata: async () => {
       if (options.storageError) throw Error('Simulated storage failure'); return [metadata];
-    }})})}),
+    }, download: async () => [options.header ||
+      (metadata.contentType === 'image/jpeg' ? Buffer.from([255, 216, 255]) :
+        metadata.contentType === 'image/png' ? Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]) :
+          metadata.contentType === 'image/webp' ? Buffer.from('RIFF0000WEBP') : Buffer.from('%PDF-1.4'))]})})}),
     getDownloadURL: async () => 'https://example.com/verified-document',
   });
   return {handler, calls};
 }
-const caller = (data = submission()) => ({auth: {uid: 'anonymous-a',
+const caller = (data = (() => {const value = submission(); delete value.identityDocumentUrl; return value;})()) => ({auth: {uid: 'anonymous-a',
   token: {firebase: {sign_in_provider: 'anonymous'}}}, data});
 
 test('the callable requires anonymous authentication and validates attachment ownership', async () => {
@@ -203,15 +206,17 @@ test('missing, oversized, unsupported or foreign attachments never create an app
 
 test('download URLs come from the verified server-side attachment, not from the caller', async () => {
   const f = endpoint();
-  assert.deepEqual(await f.handler(caller(submission({identityDocumentUrl: 'https://example.com/untrusted'}))),
-    {requestId: 'request-a'});
-  assert.equal(f.calls[0].data.identityDocumentUrl, 'https://example.com/verified-document');
+  await assert.rejects(f.handler(caller(submission({identityDocumentUrl: 'https://example.com/untrusted'}))), {code: 'invalid-argument'});
+  assert.deepEqual(await f.handler(caller()), {requestId: 'request-a'});
+  assert.equal(f.calls[0].data.identityDocumentUrl, 'gs://demo-documents.appspot.com/access_requests/anonymous-a/identity/document.pdf');
 });
 
 for (const contentType of ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']) {
   test(`identity attachment accepts ${contentType} with the same ownership and size checks`, async () => {
     const f = endpoint({metadata: {contentType}});
-    await f.handler(caller(submission({identityDocumentPath: 'access_requests/anonymous-a/identity/document.webp'})));
+    const data = submission({identityDocumentPath: 'access_requests/anonymous-a/identity/document.webp'});
+    delete data.identityDocumentUrl;
+    await f.handler(caller(data));
     assert.equal(f.calls.length, 1);
     assert.equal(f.calls[0].uid, 'anonymous-a');
   });

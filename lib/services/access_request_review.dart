@@ -1,3 +1,26 @@
+import 'package:cloud_functions/cloud_functions.dart';
+
+String accessRequestReviewErrorMessage(
+  Object error, {
+  required bool approve,
+  required String status,
+}) {
+  if (error is FirebaseFunctionsException) {
+    if (error.code == 'already-exists') {
+      final message = error.message?.trim();
+      return message != null && message.isNotEmpty
+          ? message
+          : 'Ya existe una cuenta de Firebase Authentication con este correo. La solicitud requiere revisión y no se ha aprobado.';
+    }
+    if (error.code == 'failed-precondition') {
+      return status == 'rechazado' && approve
+          ? 'El servicio todavía no permite aprobar una solicitud rechazada.'
+          : 'Esta solicitud ya fue revisada. Actualiza la lista.';
+    }
+  }
+  return 'No se pudo completar la acción';
+}
+
 enum AccessRequestReviewResult {
   approvedEmailSent,
   approvedEmailFailed,

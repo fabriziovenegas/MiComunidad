@@ -1,3 +1,4 @@
+import 'private_storage_image.dart';
 import 'package:flutter/material.dart';
 
 class ImageGalleryScreen extends StatefulWidget {
@@ -57,7 +58,7 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
                 minScale: 0.8,
                 maxScale: 5,
                 child: Center(
-                  child: Image.network(
+                  child: PrivateStorageImage(
                     widget.urls[index],
                     fit: BoxFit.contain,
                     loadingBuilder: (context, child, progress) =>

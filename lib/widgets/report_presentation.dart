@@ -6,6 +6,7 @@ import '../models/user_model.dart';
 import '../utils/text_encoding.dart';
 import 'current_report_author_name.dart';
 import 'expandable_description.dart';
+import 'report_category.dart';
 
 /// Presentation only. Stored states, moderation and permissions stay unchanged.
 class ReportVisuals {
@@ -58,14 +59,8 @@ class ReportVisuals {
         _ => secondaryText,
       };
 
-  static String? categoryLabel(Object? category) => switch (category) {
-        'seguridad' => 'Seguridad',
-        'obras' => 'Obras',
-        'iluminacion' => 'Iluminación',
-        'limpieza' => 'Limpieza',
-        'otro' => 'Otro',
-        _ => null,
-      };
+  static String? categoryLabel(Object? category) =>
+      ReportCategoryVisuals.label(category);
 }
 
 class ReportStatusBadge extends StatelessWidget {
@@ -128,61 +123,80 @@ class ReportPreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = readableText(data['title']).trim();
+    final description = readableText(data['description']).trim();
     final location = readableText(data['location']).trim();
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(
+        child: Stack(children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(
+                  // Reserve horizontal room without making the title row taller.
+                  padding: EdgeInsets.only(right: onEdit == null ? 0 : 48),
                   child: Text(title.isEmpty ? 'Reporte' : title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w700,
                           color: ReportVisuals.text))),
-              if (onEdit != null) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                    tooltip: 'Editar mi reporte',
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined,
-                        color: ReportVisuals.secondaryText)),
-              ],
-            ]),
-            const SizedBox(height: 12),
-            Wrap(
-                spacing: 12,
-                runSpacing: 10,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  ReportStatusBadge(status: status),
-                  ReportPriorityLabel(priority: data['priority'] ?? 'media'),
-                ]),
-            const SizedBox(height: 16),
-            _ReportLine(
-                icon: Icons.person_outline,
-                child: DefaultTextStyle.merge(
+              if (description.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context)
                         .textTheme
                         .bodyMedium
-                        ?.copyWith(color: ReportVisuals.secondaryText),
-                    child: author)),
-            if (location.isNotEmpty) ...[
-              const SizedBox(height: 10),
+                        ?.copyWith(color: ReportVisuals.secondaryText)),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                  spacing: 12,
+                  runSpacing: 10,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ReportStatusBadge(status: status),
+                    ReportPriorityLabel(priority: data['priority'] ?? 'media'),
+                  ]),
+              const SizedBox(height: 16),
               _ReportLine(
-                  icon: Icons.location_on_outlined,
-                  child: Text(location,
-                      maxLines: 2, overflow: TextOverflow.ellipsis)),
-            ],
-          ]),
-        ),
+                  icon: Icons.person_outline,
+                  child: DefaultTextStyle.merge(
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(color: ReportVisuals.secondaryText),
+                      child: author)),
+              if (location.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                _ReportLine(
+                    icon: Icons.location_on_outlined,
+                    child: Text(location,
+                        maxLines: 2, overflow: TextOverflow.ellipsis)),
+              ],
+            ]),
+          ),
+          if (onEdit != null)
+            Positioned(
+              top: 6,
+              right: 8,
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: IconButton(
+                    tooltip: 'Editar mi reporte',
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined,
+                        color: ReportVisuals.secondaryText)),
+              ),
+            ),
+        ]),
       ),
     );
   }
@@ -225,9 +239,7 @@ class ReportInformation extends StatelessWidget {
       ],
       if (category != null) ...[
         _ReportLine(
-            icon: data['category'] == 'iluminacion'
-                ? Icons.lightbulb_outline
-                : Icons.category_outlined,
+            icon: ReportCategoryVisuals.icon(data['category']),
             child: Text(category)),
         const SizedBox(height: 12),
       ],
@@ -258,6 +270,7 @@ class ReportInformation extends StatelessWidget {
       if (description.isNotEmpty) ...[
         const SizedBox(height: 8),
         ExpandableDescription(
+            heading: 'Descripción',
             text: description,
             style:
                 Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.45)),

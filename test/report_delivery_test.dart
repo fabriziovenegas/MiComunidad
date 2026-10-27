@@ -16,6 +16,13 @@ import 'pending_report_service_test.dart' show reportFields;
 class DeliveryDatabase extends Mock implements FirebaseFirestore {
   final rows = <String, Map<String, dynamic>>{};
   final writes = <String>[];
+  final profiles = <String, Map<String, dynamic>>{
+    'owner': {
+      'nombre': 'Fictional Resident',
+      'role': 'vecino',
+      'approvalStatus': 'aprobado'
+    }
+  };
   Object? Function(String)? readError;
   Future<void> Function(String, Map<String, dynamic>)? writeHook;
   bool fromCache = false;
@@ -49,6 +56,9 @@ class DeliveryDocument extends Mock
   Future<DocumentSnapshot<Map<String, dynamic>>> get(
       [GetOptions? options]) async {
     expect(options?.source, Source.server);
+    if (path.startsWith('users/')) {
+      return DraftSnapshot(db.profiles[path.substring(6)]);
+    }
     final error = db.readError?.call(path);
     if (error != null) throw error;
     return DraftSnapshot(db.rows[path],
@@ -126,6 +136,36 @@ class DeliveryTask extends Mock implements UploadTask {
 
 class DeliveryTaskSnapshot extends Mock implements TaskSnapshot {}
 
+// Emulates only the callable transport; backend security has separate API and
+// emulator tests. Client retry tests still exercise lost acknowledgements.
+Future<void> Function(Map<String, dynamic>) fakeAttachmentRegistration(
+        DeliveryDatabase db, DeliveryStorage storage) =>
+    (fields) async {
+      expect(fields.keys.toSet(), {
+        'collection',
+        'documentId',
+        'kind',
+        'attachmentId',
+        'storagePath',
+        'name'
+      });
+      final path =
+          '${fields['collection']}/${fields['documentId']}/${fields['kind']}/${fields['attachmentId']}';
+      final url =
+          await storage.ref(fields['storagePath'] as String).getDownloadURL();
+      await DeliveryDocument(db, path).set({
+        'url': url,
+        'storagePath': fields['storagePath'],
+        'name': fields['name'],
+        'contentType': (fields['name'] as String).toLowerCase().endsWith('.pdf')
+            ? 'application/pdf'
+            : 'image',
+        'uploadedBy': storage.metadata[fields['storagePath']]!['uploadedBy'],
+        'uploadId': fields['attachmentId'],
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    };
+
 void main() {
   late DeliveryDatabase db;
   late DeliveryStorage storage;
@@ -147,6 +187,7 @@ void main() {
         firestore: db,
         storage: storage,
         currentUserId: () => user,
+        registerAttachment: fakeAttachmentRegistration(db, storage),
         refreshAuth: () async {});
     temporary = await Directory.systemTemp.createTemp('report-delivery-test-');
     photo = File('${temporary.path}/photo.png');
@@ -175,6 +216,18 @@ void main() {
     expect(db.rows['reports/stable'],
         containsPair('moderationStatus', 'pendiente'));
     expect(db.rows['reports/stable']!['createdAt'], isA<FieldValue>());
+  });
+  test('a stale or forged draft name is replaced by the current profile name',
+      () async {
+    db.profiles['owner']!['nombre'] = 'Fictional Current Name';
+    report = PendingReport(id: 'stable', userId: 'owner', fields: {
+      ...reportFields,
+      'createdByName': 'Forged draft name',
+    });
+    await sender.ensureReport(report);
+    expect(
+        db.rows['reports/stable']!['createdByName'], 'Fictional Current Name');
+    expect(report.fields['createdByName'], 'Forged draft name');
   });
   test(
       'existing report is never overwritten, even if already edited and resolved',

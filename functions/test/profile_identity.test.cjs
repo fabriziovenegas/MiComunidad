@@ -18,6 +18,23 @@ const setup = (options = {}) => fixture({members: [['resident-a', profile()]],
   requests: [['request-a', application()]], ...options});
 const key = (dni) => createHash('sha256').update(dni).digest('hex');
 
+test('a legacy profile without community fields can still use the older four-field update', async () => {
+  const previous = profile();
+  for (const field of ['address', 'timeLivingHere', 'reason']) delete previous[field];
+  const f = fixture({members: [['resident-a', previous]]});
+  await f.identity.updateOwnProfile('resident-a', {nombre: previous.nombre, dni: previous.dni,
+    phone: previous.phone, email: previous.email});
+  assert.equal(f.data.users.get('resident-a').role, 'vecino');
+  assert.equal(f.data.users.get('resident-a').dni, previous.dni);
+});
+
+test('a profile cannot introduce a residence dropdown value the app does not offer', async () => {
+  const f = setup();
+  await assert.rejects(f.identity.updateOwnProfile('resident-a', changed({timeLivingHere: 'invented'})), {code: 'invalid-argument'});
+  assert.equal(f.authWrites.length, 0);
+  assert.deepEqual(f.data.users.get('resident-a'), profile());
+});
+
 test('all seven fields save together; original request and ownership remain unchanged', async () => {
   const f = setup();
   const original = {...f.data.accessRequests.get('request-a')};
@@ -33,8 +50,8 @@ test('all seven fields save together; original request and ownership remain unch
   assert.equal(request.currentProfile.reason, 'Corrected fictional reason');
   assert.equal((await f.identity.findRequestStatus('00000001')).request, null);
   const result = (await f.identity.findRequestStatus('00000002')).request;
-  assert.equal(result.name, 'Updated Resident');
-  assert.equal(result.email, 'up****@***.com');
+  assert.equal(Object.hasOwn(result, 'name'), false);
+  assert.equal(result.email, 'up****d@example.com');
   assert.equal(result.status, 'aprobado');
   for (const field of ['dni', 'phone', 'address', 'reason', 'approvedUserId', 'currentProfile']) {
     assert.equal(Object.hasOwn(result, field), false);
@@ -56,7 +73,7 @@ test('a second DNI correction does not leave a working old lookup', async () => 
 test('lookup uses a profile corrected before this change without rewriting the original request', async () => {
   const f = setup({members: [['resident-a', profile({dni: '00000002'})]]});
   assert.equal((await f.identity.findRequestStatus('00000001')).request, null);
-  assert.equal((await f.identity.findRequestStatus('00000002')).request.name, 'Demo Resident');
+  assert.equal((await f.identity.findRequestStatus('00000002')).request.email, 're*****t@example.com');
   assert.equal(f.data.accessRequests.get('request-a').dni, '00000001');
   assert.equal(f.data.accessRequests.get('request-a').lookupDni, undefined);
 });
@@ -65,7 +82,7 @@ test('pending and rejected requests use their submitted data, not injected curre
   for (const status of ['pendiente', 'rechazado']) {
     const f = setup({members: [], requests: [['r', application({status, approvedUserId: null,
       lookupDni: '00000002', currentProfile: {name: 'Injected', dni: '00000002'}})]]});
-    assert.equal((await f.identity.findRequestStatus('00000001')).request.name, 'Original Resident');
+    assert.equal((await f.identity.findRequestStatus('00000001')).request.email, 'or*****l@example.com');
     assert.equal((await f.identity.findRequestStatus('00000002')).request, null);
   }
 });
@@ -99,7 +116,7 @@ test('an independent request can still be found using the former DNI', async () 
   })]]});
   await f.identity.updateOwnProfile('resident-a', changed());
   const result = (await f.identity.findRequestStatus('00000001')).request;
-  assert.equal(result.name, 'Another Demo Resident');
+  assert.equal(Object.hasOwn(result, 'name'), false);
   assert.equal(result.status, 'pendiente');
 });
 
@@ -191,7 +208,7 @@ test('approval reserves the DNI, preserves submitted fields and blocks competing
     'resident-a', profile(), {status: 'aprobado'});
   assert.equal(f.data.memberDniKeys.get(key('00000001')).userId, 'resident-a');
   assert.equal(f.data.accessRequests.get('request-a').name, 'Original Resident');
-  assert.equal((await f.identity.findRequestStatus('00000001')).request.name, 'Demo Resident');
+  assert.equal((await f.identity.findRequestStatus('00000001')).request.email, 're*****t@example.com');
   await assert.rejects(f.identity.saveApprovedProfile(f.db.collection('accessRequests').doc('request-a'),
     'resident-b', profile(), {status: 'aprobado'}), {code: 'failed-precondition'});
 });

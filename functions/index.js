@@ -1,17 +1,17 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
-const {getStorage, getDownloadURL} = require("firebase-admin/storage");
-const {getFirestore, FieldValue, Timestamp} = require("firebase-admin/firestore");
-const {createHash, randomInt} = require("crypto");
+const {getStorage} = require("firebase-admin/storage");
+const {getFirestore, FieldValue} = require("firebase-admin/firestore");
 const nodemailer = require("nodemailer");
 const {createProfileIdentity, profileSnapshot} = require("./profile_identity");
 const {createAccessRequestSubmission} = require("./access_request_submission");
 const {createReportAuthorNameLookup} = require("./report_author_name");
+const {createContentAuthorNameLookup} = require("./content_author_name");
+const {createContentAttachments} = require("./content_attachments");
 
 initializeApp();
 
-const emailSecrets = ["GMAIL_USER", "GMAIL_PASSWORD"];
 const region = "southamerica-east1";
 const communityName = process.env.COMMUNITY_NAME || "MiComunidad";
 const communityId = process.env.COMMUNITY_ID || "community";
@@ -41,17 +41,13 @@ async function requireAdmin(auth) {
   }
   const profile = await getFirestore().collection("users").doc(auth.uid).get();
   const data = profile.data();
-  if (!profile.exists || data.role !== "admin" || data.approvalStatus !== "aprobado") {
+  if (!profile.exists || data.role !== "admin" || data.approvalStatus !== "aprobado" || data.profileWithdrawalInProgress === true) {
     throw new HttpsError("permission-denied", "Solo un administrador puede realizar esta acción.");
   }
 }
 
 function clean(value) {
   return String(value || "").replace(/[<>&"']/g, "");
-}
-
-function hash(value) {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 async function sendEmail({to, subject, html}) {
@@ -67,119 +63,51 @@ async function sendEmail({to, subject, html}) {
 }
 
 exports.submitAccessRequest = onCall({region}, (request) => createAccessRequestSubmission({
-  identity: profileIdentity(), storage: getStorage, getDownloadURL, HttpsError,
+  identity: profileIdentity(), storage: getStorage, HttpsError,
 })(request));
 
 exports.getAccessRequestStatus = onCall({region}, async (request) => {
-  const dni = String(request.data?.dni || "").trim();
-  if (!/^\d{8}$/.test(dni)) {
+  const rawDni = request.data?.dni;
+  if (typeof rawDni !== "string" || !/^\d{8}$/.test(rawDni.trim())) {
     throw new HttpsError("invalid-argument", "El DNI debe tener 8 dígitos.");
   }
-  return profileIdentity().findRequestStatus(dni);
+  return profileIdentity().findRequestStatus(rawDni.trim());
 });
 
 exports.getReportAuthorName = onCall({region}, (request) => createReportAuthorNameLookup({
   firestore: getFirestore(), HttpsError,
 })(request));
 
-exports.requestPasswordResetCode = onCall(
-    {region, secrets: emailSecrets},
-    async (request) => {
-      const email = String(request.data?.email || "").trim().toLowerCase();
-      if (!/^\S+@\S+\.\S+$/.test(email)) {
-        throw new HttpsError("invalid-argument", "Ingresa un correo válido.");
-      }
+exports.getContentAuthorName = onCall({region}, (request) => createContentAuthorNameLookup({
+  firestore: getFirestore(), HttpsError,
+})(request));
 
-      let account;
-      try {
-        account = await getAuth().getUserByEmail(email);
-      } catch (error) {
-        if (error.code === "auth/user-not-found") {
-          return {success: true};
-        }
-        throw error;
-      }
+exports.registerContentAttachment = onCall({region}, (request) => createContentAttachments({
+  firestore: getFirestore(), storage: getStorage, HttpsError, FieldValue,
+}).register(request));
 
-      const profile = await getFirestore().collection("users").doc(account.uid).get();
-      if (!profile.exists || profile.data().approvalStatus !== "aprobado") {
-        return {success: true};
-      }
+exports.deleteContentAttachment = onCall({region}, (request) => createContentAttachments({
+  firestore: getFirestore(), storage: getStorage, HttpsError, FieldValue,
+}).remove(request));
 
-      const code = String(randomInt(100000, 1000000));
-      const reference = getFirestore().collection("passwordResetCodes").doc(hash(email));
-      await reference.set({
-        userId: account.uid,
-        email,
-        codeHash: hash(`${email}:${code}`),
-        attemptsRemaining: 3,
-        expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
-        createdAt: FieldValue.serverTimestamp(),
-      });
-      const sent = await sendEmail({
-        to: email,
-        subject: "Código para recuperar tu contraseña",
-        html: `<p>Tu código de recuperación es <strong>${code}</strong>.</p><p>Caduca en 10 minutos y permite hasta 3 intentos.</p>`,
-      });
-      if (!sent) {
-        await reference.delete();
-        throw new HttpsError(
-            "failed-precondition",
-            "El servicio de correo todavía no está configurado.",
-        );
-      }
-      return {success: true};
-    },
-);
+// Legacy code-based recovery is unused and deliberately unavailable. The app
+// continues using Firebase Authentication's password-reset email flow.
+exports.requestPasswordResetCode = onCall({region}, async () => {
+  throw new HttpsError("failed-precondition", "Utiliza Recuperar contraseña para solicitar un enlace por correo.");
+});
 
-exports.confirmPasswordResetCode = onCall({region}, async (request) => {
-  const email = String(request.data?.email || "").trim().toLowerCase();
-  const code = String(request.data?.code || "").trim();
-  const newPassword = String(request.data?.newPassword || "");
-  if (!/^\S+@\S+\.\S+$/.test(email) || !/^\d{6}$/.test(code)) {
-    throw new HttpsError("invalid-argument", "Correo o código inválido.");
-  }
-  if (newPassword.length < 8) {
-    throw new HttpsError(
-        "invalid-argument",
-        "La contraseña debe tener al menos 8 caracteres.",
-    );
-  }
-
-  const reference = getFirestore().collection("passwordResetCodes").doc(hash(email));
-  const verification = await getFirestore().runTransaction(async (transaction) => {
-    const document = await transaction.get(reference);
-    if (!document.exists) {
-      return {error: "not-found", message: "Solicita un código nuevo."};
-    }
-    const data = document.data();
-    if (data.expiresAt.toMillis() < Date.now()) {
-      transaction.delete(reference);
-      return {error: "deadline-exceeded", message: "El código venció. Solicita otro."};
-    }
-    if (data.attemptsRemaining <= 0) {
-      transaction.delete(reference);
-      return {error: "resource-exhausted", message: "Se agotaron los intentos."};
-    }
-    if (data.codeHash !== hash(`${email}:${code}`)) {
-      const remaining = data.attemptsRemaining - 1;
-      transaction.update(reference, {attemptsRemaining: remaining});
-      return {
-        error: "permission-denied",
-        message: remaining > 0 ? `Código incorrecto. Quedan ${remaining} intentos.` : "Se agotaron los intentos.",
-      };
-    }
-    transaction.delete(reference);
-    return {userId: data.userId};
-  });
-  if (verification.error) {
-    throw new HttpsError(verification.error, verification.message);
-  }
-  await getAuth().updateUser(verification.userId, {password: newPassword});
-  return {success: true};
+exports.confirmPasswordResetCode = onCall({region}, async () => {
+  throw new HttpsError("failed-precondition", "Utiliza el enlace de recuperación enviado por Firebase Authentication.");
 });
 
 exports.reviewAccessRequest = onCall({region}, async (request) => {
   await requireAdmin(request.auth);
+  if (!request.data || typeof request.data !== "object" || Array.isArray(request.data) ||
+      Object.keys(request.data).some((key) => !["requestId", "action", "reason"].includes(key)) ||
+      typeof request.data.requestId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(request.data.requestId) ||
+      (request.data.reason != null && (typeof request.data.reason !== "string" || request.data.reason.length > 1000))) {
+    throw new HttpsError("invalid-argument", "Solicitud o acción inválida.");
+  }
   const requestId = String(request.data?.requestId || "");
   const action = String(request.data?.action || "");
   const reason = clean(request.data?.reason);
@@ -206,21 +134,24 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
     return {success: true};
   }
 
-  let account;
-  let createdAccount = false;
+  const existingAccountMessage = "Ya existe una cuenta de Firebase Authentication con este correo. La solicitud requiere revisión y no se ha aprobado.";
+  // Only an absent Auth account may be created by this approval. Never attach
+  // access to a preexisting account, even if it has no Firestore profile.
   try {
-    account = await getAuth().getUserByEmail(data.email);
-    const existingProfile = await getFirestore().collection("users").doc(account.uid).get();
-    if (existingProfile.exists) {
-      throw new HttpsError(
-          "already-exists",
-          "El correo ya pertenece a una cuenta registrada.",
-      );
-    }
+    await getAuth().getUserByEmail(data.email);
+    throw new HttpsError("already-exists", existingAccountMessage);
   } catch (error) {
     if (error.code !== "auth/user-not-found") throw error;
+  }
+  let account;
+  try {
     account = await getAuth().createUser({email: data.email, displayName: data.name, emailVerified: false});
-    createdAccount = true;
+  } catch (error) {
+    // Also fail closed if another client created the email after the lookup.
+    if (error.code === "auth/email-already-exists") {
+      throw new HttpsError("already-exists", existingAccountMessage);
+    }
+    throw error;
   }
   const profile = {
     userId: account.uid,
@@ -244,10 +175,8 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
       reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
   } catch (error) {
-    if (createdAccount) {
-      const stored = await getFirestore().collection("users").doc(account.uid).get();
-      if (!stored.exists) await getAuth().deleteUser(account.uid);
-    }
+    const stored = await getFirestore().collection("users").doc(account.uid).get();
+    if (!stored.exists) await getAuth().deleteUser(account.uid);
     throw error;
   }
   await getAuth().setCustomUserClaims(account.uid, {
@@ -261,6 +190,11 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
 
 exports.removeNeighbor = onCall({region}, async (request) => {
   await requireAdmin(request.auth);
+  if (!request.data || typeof request.data !== "object" || Array.isArray(request.data) ||
+      Object.keys(request.data).some((key) => key !== "userId") ||
+      typeof request.data.userId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(request.data.userId)) {
+    throw new HttpsError("invalid-argument", "El usuario no es válido.");
+  }
   const userId = String(request.data?.userId || "");
   const profile = await profileIdentity().beginWithdrawal(userId);
   const firestore = getFirestore();
@@ -317,6 +251,11 @@ exports.removeNeighbor = onCall({region}, async (request) => {
 
 exports.setUserRole = onCall({region}, async (request) => {
   await requireAdmin(request.auth);
+  if (!request.data || typeof request.data !== "object" || Array.isArray(request.data) ||
+      Object.keys(request.data).some((key) => !["userId", "role"].includes(key)) ||
+      typeof request.data.userId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(request.data.userId)) {
+    throw new HttpsError("invalid-argument", "Usuario o rol inválido.");
+  }
   const userId = String(request.data?.userId || "");
   const role = String(request.data?.role || "");
   if (!userId || !["vecino", "admin"].includes(role)) {
@@ -383,6 +322,11 @@ exports.setUserRole = onCall({region}, async (request) => {
 exports.updateOwnProfile = onCall({region}, async (request) => {
   if (!request.auth?.uid) {
     throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+  }
+  if (!request.data || typeof request.data !== "object" || Array.isArray(request.data) ||
+      Object.keys(request.data).some((key) => !["nombre", "dni", "phone", "email", "address", "timeLivingHere", "reason"].includes(key) ||
+        typeof request.data[key] !== "string")) {
+    throw new HttpsError("invalid-argument", "El perfil contiene campos o tipos no permitidos.");
   }
   return profileIdentity().updateOwnProfile(request.auth.uid, request.data || {});
 });

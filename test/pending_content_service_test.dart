@@ -94,6 +94,25 @@ void main() {
         true);
     await Directory(path).delete(recursive: true);
   });
+  test(
+      'queued comments use the current profile name instead of an old supplied name',
+      () async {
+    await db.doc('users/owner').update({'nombre': 'Fictional Current Name'});
+    final item = PendingContent(
+        id: 'canonical-name',
+        collection: 'projects',
+        parentId: 'parent',
+        userId: 'owner',
+        fields: {
+          'text': 'Fictional comment',
+          'authorName': 'Forged or old name'
+        });
+    await delivery.deliver(item);
+    final saved =
+        (await db.doc('projects/parent/comments/canonical-name').get()).data()!;
+    expect(saved['authorName'], 'Fictional Current Name');
+    expect(saved['authorId'], 'owner');
+  });
   for (final collection in ['projects', 'events']) {
     test(
         '$collection preserves complete fields before network, restores after restart and sends only once',

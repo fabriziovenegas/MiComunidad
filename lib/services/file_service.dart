@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'heif_image_converter.dart';
 
 class SelectedUpload {
   const SelectedUpload(this.file);
@@ -24,6 +25,15 @@ class FileService {
   static const int maxDocumentBytes = 5 * 1024 * 1024;
   static const imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
   static const documentExtensions = [...imageExtensions, 'pdf'];
+  // Only selectors accept HEIF. Durable queues and uploads accept JPEG output.
+  static const selectableImageExtensions = [
+    ...imageExtensions,
+    ...HeifImageConverter.extensions
+  ];
+  static const selectableDocumentExtensions = [
+    ...selectableImageExtensions,
+    'pdf'
+  ];
 
   static String extensionOf(String name) => name.split('.').last.toLowerCase();
   static String contentTypeForName(String name) => switch (extensionOf(name)) {
@@ -38,41 +48,54 @@ class FileService {
   static Future<SelectedUpload?> pickImage() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: imageExtensions,
+      allowedExtensions: selectableImageExtensions,
       allowMultiple: false,
       withData: false,
     );
     if (result == null) return null;
     final selected = SelectedUpload(result.files.single);
-    if (!imageExtensions.contains(extensionOf(selected.name))) {
+    if (!selectableImageExtensions.contains(extensionOf(selected.name))) {
       throw const FileUploadException(
-          'Selecciona una imagen JPG, JPEG, PNG o WEBP.');
+          'Selecciona una imagen JPG, JPEG, PNG, WEBP, HEIC o HEIF.');
     }
     if (selected.size > maxImageBytes) {
       throw FileUploadException(
           'La imagen no puede superar ${maxImageBytes ~/ (1024 * 1024)} MB.');
     }
-    return selected;
+    return _prepareImage(selected, maxImageBytes);
   }
 
   static Future<SelectedUpload?> pickIdentityDocument() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: documentExtensions,
+      allowedExtensions: selectableDocumentExtensions,
       allowMultiple: false,
       withData: false,
     );
     if (result == null) return null;
     final selected = SelectedUpload(result.files.single);
-    if (!documentExtensions.contains(extensionOf(selected.name))) {
+    if (!selectableDocumentExtensions.contains(extensionOf(selected.name))) {
       throw const FileUploadException(
-          'Selecciona un archivo JPG, JPEG, PNG, WEBP o PDF.');
+          'Selecciona un archivo JPG, JPEG, PNG, WEBP, HEIC, HEIF o PDF.');
     }
     if (selected.size > maxDocumentBytes) {
       throw FileUploadException(
           'El archivo no puede superar ${maxDocumentBytes ~/ (1024 * 1024)} MB.');
     }
-    return selected;
+    return _prepareImage(selected, maxDocumentBytes);
+  }
+
+  static Future<SelectedUpload> _prepareImage(
+      SelectedUpload selected, int maxBytes) async {
+    if (!HeifImageConverter.extensions.contains(extensionOf(selected.name))) {
+      return selected;
+    }
+    try {
+      return SelectedUpload(
+          await HeifImageConverter.toJpeg(selected.file, maxBytes: maxBytes));
+    } on HeifConversionException catch (error) {
+      throw FileUploadException(error.message);
+    }
   }
 
   static Future<UploadedFile> upload({
@@ -99,7 +122,7 @@ class FileService {
           'No se pudo leer el archivo seleccionado.');
     }
     return UploadedFile(
-      url: await reference.getDownloadURL(),
+      url: 'gs://${reference.bucket}/${reference.fullPath}',
       storagePath: reference.fullPath,
     );
   }

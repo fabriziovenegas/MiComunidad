@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 import 'pending_report_service.dart';
 import 'file_service.dart';
+import 'attachment_registry.dart';
 
 abstract class ReportDelivery {
   Future<void> ensureReport(PendingReport item);
@@ -19,17 +20,20 @@ class FirebaseReportDelivery implements ReportDelivery {
       {FirebaseFirestore? firestore,
       FirebaseStorage? storage,
       String? Function()? currentUserId,
-      Future<void> Function()? refreshAuth})
+      Future<void> Function()? refreshAuth,
+      Future<void> Function(Map<String, dynamic>)? registerAttachment})
       : _firestore = firestore,
         _storage = storage,
         _currentUserId =
             currentUserId ?? (() => FirebaseAuth.instance.currentUser?.uid),
-        _refreshAuth = refreshAuth ?? _refreshToken;
+        _refreshAuth = refreshAuth ?? _refreshToken,
+        _registerAttachment = registerAttachment ?? AttachmentRegistry.register;
 
   final FirebaseFirestore? _firestore;
   final FirebaseStorage? _storage;
   final String? Function() _currentUserId;
   final Future<void> Function() _refreshAuth;
+  final Future<void> Function(Map<String, dynamic>) _registerAttachment;
   static Future<void> _refreshToken() async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
   }
@@ -77,8 +81,10 @@ class FirebaseReportDelivery implements ReportDelivery {
     }
     try {
       _checkAccount(item);
+      final profile = await _fresh(_db.collection('users').doc(item.userId));
       await ref.set({
         ...item.fields,
+        'createdByName': profile.data()?['nombre'] ?? '',
         'createdBy': item.userId,
         'status': 'pendiente',
         'moderationStatus': 'pendiente',
@@ -144,16 +150,15 @@ class FirebaseReportDelivery implements ReportDelivery {
             },
           ));
     }
-    final url = await reference.getDownloadURL();
     try {
       _checkAccount(item);
-      await metadataRef.set({
-        'url': url,
+      await _registerAttachment({
+        'collection': 'reports',
+        'documentId': item.id,
+        'kind': 'photos',
+        'attachmentId': item.id,
         'storagePath': reference.fullPath,
         'name': item.photoName,
-        'contentType': 'image',
-        'uploadedBy': item.userId,
-        'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {
       try {

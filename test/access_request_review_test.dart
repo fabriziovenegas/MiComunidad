@@ -1,10 +1,89 @@
 import 'dart:async';
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micomunidad/services/access_request_review.dart';
 
 void main() {
+  const existingAccountMessage =
+      'Ya existe una cuenta de Firebase Authentication con este correo. La solicitud requiere revisión y no se ha aprobado.';
+
+  test(
+      'preexisting Auth account blocks approval and password email with a clear notice',
+      () async {
+    final error = FirebaseFunctionsException(
+        code: 'already-exists', message: existingAccountMessage);
+    var sends = 0;
+    await expectLater(
+      reviewAccessRequestWithEmail(
+        approve: true,
+        review: () async => throw error,
+        sendEmail: () async => sends++,
+      ),
+      throwsA(same(error)),
+    );
+    expect(sends, 0);
+    expect(
+        accessRequestReviewErrorMessage(error,
+            approve: true, status: 'pendiente'),
+        existingAccountMessage);
+  });
+
+  test(
+      'missing backend conflict message still explains that review is required',
+      () {
+    for (final message in ['', '   ']) {
+      expect(
+          accessRequestReviewErrorMessage(
+              FirebaseFunctionsException(
+                  code: 'already-exists', message: message),
+              approve: true,
+              status: 'rechazado'),
+          existingAccountMessage);
+    }
+  });
+
+  test('other identity conflicts retain the specific backend explanation', () {
+    const message = 'El DNI ya pertenece a otra cuenta.';
+    expect(
+        accessRequestReviewErrorMessage(
+            FirebaseFunctionsException(
+                code: 'already-exists', message: message),
+            approve: true,
+            status: 'pendiente'),
+        message);
+  });
+
+  test(
+      'review status errors and unexpected failures keep their existing messages',
+      () {
+    final error = FirebaseFunctionsException(
+        code: 'failed-precondition', message: 'Fictional status error');
+    expect(
+        accessRequestReviewErrorMessage(error,
+            approve: true, status: 'rechazado'),
+        'El servicio todavía no permite aprobar una solicitud rechazada.');
+    for (final approve in [true, false]) {
+      expect(
+          accessRequestReviewErrorMessage(error,
+              approve: approve, status: 'pendiente'),
+          'Esta solicitud ya fue revisada. Actualiza la lista.');
+    }
+    for (final error in [
+      Exception('Fictional failure'),
+      FirebaseFunctionsException(
+          code: 'unavailable', message: 'Fictional connection error'),
+      FirebaseFunctionsException(
+          code: 'permission-denied', message: 'Fictional permission error'),
+    ]) {
+      expect(
+          accessRequestReviewErrorMessage(error,
+              approve: true, status: 'pendiente'),
+          'No se pudo completar la acción');
+    }
+  });
+
   test('successful approval sends once, then returns the sent message',
       () async {
     final calls = <String>[];

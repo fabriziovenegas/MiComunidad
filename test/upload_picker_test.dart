@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micomunidad/services/file_service.dart';
+import 'package:micomunidad/services/heif_image_converter.dart';
 import 'package:micomunidad/widgets/upload_picker.dart';
 import 'package:micomunidad/screens/auth/signup_screen.dart';
 
@@ -37,10 +39,126 @@ class DemoFilePicker extends FilePicker {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late DemoFilePicker picker;
   setUp(() {
     picker = DemoFilePicker();
     FilePicker.platform = picker;
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(HeifImageConverter.channel, null);
+  });
+
+  for (final extension in ['heic', 'HEIC', 'heif', 'HEIF']) {
+    for (final document in [false, true]) {
+      test(
+          '$extension is converted to JPEG in the ${document ? 'document' : 'photo'} picker',
+          () async {
+        final jpeg = Uint8List.fromList([0xff, 0xd8, 1, 2, 0xff, 0xd9]);
+        MethodCall? received;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(HeifImageConverter.channel, (call) async {
+          received = call;
+          return jpeg;
+        });
+        picker.result = FilePickerResult([
+          PlatformFile(
+              name: 'foto.original.$extension',
+              size: 100,
+              path: '/photo/source')
+        ]);
+        final selected = await (document
+            ? FileService.pickIdentityDocument()
+            : FileService.pickImage());
+        expect(selected!.name, 'foto.original.jpg');
+        expect(selected.size, jpeg.length);
+        expect(selected.file.bytes, jpeg);
+        expect(selected.file.path, isNull);
+        expect(FileService.contentTypeForName(selected.name), 'image/jpeg');
+        expect(received!.method, 'heifToJpeg');
+        expect(received!.arguments['path'], '/photo/source');
+        expect(
+            received!.arguments['maxBytes'],
+            document
+                ? FileService.maxDocumentBytes
+                : FileService.maxImageBytes);
+        // Only accepted output formats can enter the upload/outbox layer.
+        expect(FileService.imageExtensions,
+            isNot(contains(extension.toLowerCase())));
+      });
+    }
+  }
+
+  for (final document in [false, true]) {
+    final pick =
+        document ? FileService.pickIdentityDocument : FileService.pickImage;
+    final limit =
+        document ? FileService.maxDocumentBytes : FileService.maxImageBytes;
+    test(
+        'oversized HEIF source is rejected before conversion (document: $document)',
+        () async {
+      var calls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(HeifImageConverter.channel, (_) async {
+        calls++;
+        return null;
+      });
+      picker.select(limit + 1, name: 'large.heif');
+      await expectLater(pick(), throwsA(isA<FileUploadException>()));
+      expect(calls, 0);
+    });
+    test('oversized converted JPEG is rejected (document: $document)',
+        () async {
+      final jpeg = Uint8List(limit + 1);
+      jpeg[0] = 0xff;
+      jpeg[1] = 0xd8;
+      jpeg[jpeg.length - 2] = 0xff;
+      jpeg[jpeg.length - 1] = 0xd9;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+              HeifImageConverter.channel, (_) async => jpeg);
+      picker.select(100, name: 'large.heic');
+      await expectLater(pick(), throwsA(isA<FileUploadException>()));
+    });
+  }
+
+  for (final code in ['unsupported_device', 'conversion_failed', 'too_large']) {
+    test('conversion failure $code becomes a friendly picker error', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(HeifImageConverter.channel, (_) async {
+        throw PlatformException(code: code, message: 'internal native detail');
+      });
+      picker.select(100, name: 'photo.heif');
+      await expectLater(
+          FileService.pickImage(),
+          throwsA(isA<FileUploadException>().having((error) => error.message,
+              'message', isNot(contains('internal')))));
+    });
+  }
+
+  test('invalid conversion output never enters an upload queue', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(HeifImageConverter.channel,
+            (_) async => Uint8List.fromList([1, 2, 3]));
+    picker.select(100, name: 'photo.heic');
+    await expectLater(
+        FileService.pickImage(), throwsA(isA<FileUploadException>()));
+  });
+
+  test('HEIF bytes-only selections are forwarded without needing a path',
+      () async {
+    final original = Uint8List.fromList([10, 20, 30]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(HeifImageConverter.channel, (call) async {
+      expect(call.arguments['bytes'], original);
+      expect(call.arguments['path'], isNull);
+      return Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]);
+    });
+    picker.result = FilePickerResult([
+      PlatformFile(name: 'photo.heif', size: original.length, bytes: original)
+    ]);
+    expect((await FileService.pickImage())!.name, 'photo.jpg');
   });
 
   for (final extension in ['jpg', 'jpeg', 'png', 'webp', 'WEBP']) {
@@ -54,7 +172,7 @@ void main() {
           'document.$extension');
     });
   }
-  for (final extension in ['heic', 'heif', 'gif', 'bmp', 'svg', 'txt']) {
+  for (final extension in ['gif', 'bmp', 'svg', 'txt']) {
     test('unconfirmed or unsupported $extension stays rejected', () async {
       picker.select(100, name: 'photo.$extension');
       await expectLater(
@@ -101,8 +219,8 @@ void main() {
         expect(
             picker.extensions,
             image
-                ? ['jpg', 'jpeg', 'png', 'webp']
-                : ['jpg', 'jpeg', 'png', 'webp', 'pdf']);
+                ? ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']
+                : ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf']);
       });
     }
 
@@ -229,6 +347,22 @@ void main() {
     expect(find.text('El archivo no puede superar 5 MB.'), findsOneWidget);
     expect(find.text('demo-document.pdf'), findsOneWidget);
     expect(find.text('too-large.pdf'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byTooltip('Cerrar aviso'));
+    await tester.pump();
+
+    // A failed HEIF conversion must not discard the existing attachment.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(HeifImageConverter.channel, (_) async {
+      throw PlatformException(code: 'conversion_failed');
+    });
+    picker.select(100, name: 'broken.heic');
+    await tester.tap(find.text('demo-document.pdf'));
+    await tester.pumpAndSettle();
+    expect(find.text('demo-document.pdf'), findsOneWidget);
+    expect(find.text('broken.heic'), findsNothing);
+    expect(find.textContaining('No se pudo convertir la fotografía.'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.tap(find.byTooltip('Cerrar aviso'));
     await tester.pump();

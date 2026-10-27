@@ -121,7 +121,7 @@ void main() {
         lessThan(tester.getTopLeft(description).dy));
     expect(find.text('Asamblea vecinal'), findsNothing);
     expect(find.text('Leer más'), findsNothing);
-    expect(find.text('Descripción'), findsNothing);
+    expect(find.text('Descripción'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 

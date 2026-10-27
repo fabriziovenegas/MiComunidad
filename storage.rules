@@ -2,10 +2,13 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() { return request.auth != null; }
-    function approved() { return signedIn() && request.auth.token.approved == true && request.auth.token.role in ['vecino', 'admin']; }
-    function admin() { return approved() && request.auth.token.role == 'admin'; }
-    function image() { return request.resource.contentType.matches('image/(jpeg|png|webp)') && request.resource.size <= 10 * 1024 * 1024; }
-    function document() { return (image() || request.resource.contentType == 'application/pdf') && request.resource.size <= 5 * 1024 * 1024; }
+    function profile() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
+    // Use current membership, not claims cached in a previously issued token.
+    // A normal content operation reads at most profile + parent (two documents).
+    function approved() { return signedIn() && profile().approvalStatus == 'aprobado' && profile().role in ['vecino', 'admin'] && profile().get('profileWithdrawalInProgress', false) != true; }
+    function admin() { return approved() && profile().role == 'admin'; }
+    function image() { return request.resource.contentType is string && request.resource.contentType.matches('image/(jpeg|png|webp)') && request.resource.size > 0 && request.resource.size <= 10 * 1024 * 1024; }
+    function document() { return (image() || request.resource.contentType == 'application/pdf') && request.resource.size > 0 && request.resource.size <= 5 * 1024 * 1024; }
     function report(reportId) {
       return firestore.get(/databases/(default)/documents/reports/$(reportId)).data;
     }
@@ -24,7 +27,7 @@ service firebase.storage {
         && report(reportId).status in ['pendiente', 'en_revision', 'en_proceso'];
     }
     function reportAcceptsPhotos(reportId) {
-      return reportExists(reportId) && (
+      return reportExists(reportId) && report(reportId).get('deletionInProgress', false) != true && (
         reportActiveForContributions(reportId)
         || (report(reportId).moderationStatus == 'pendiente'
           && reportOwnedByRequester(reportId))
@@ -36,17 +39,35 @@ service firebase.storage {
     function activeProject(projectId) {
       return project(projectId).isTrashed == false;
     }
+    function eventExists(eventId) {
+      return firestore.exists(/databases/(default)/documents/events/$(eventId));
+    }
+    function ownedUpload(fileName) {
+      let metadata = request.resource.metadata;
+      let uploadId = metadata.get('attachmentUploadId', metadata.get('reportUploadId', ''));
+      return metadata.uploadedBy == request.auth.uid
+        && metadata.keys().hasOnly(['uploadedBy', 'attachmentUploadId', 'reportUploadId'])
+        && uploadId.matches('[A-Za-z0-9_-]{1,128}')
+        && !(metadata.keys().hasAll(['attachmentUploadId', 'reportUploadId']))
+        && fileName.size() <= 400
+        && fileName.matches(uploadId + '_[A-Za-z0-9._-]+');
+    }
 
     match /access_requests/{userId}/identity/{fileName} {
-      allow write: if signedIn() && request.auth.uid == userId && request.auth.token.firebase.sign_in_provider == 'anonymous' && document();
+      allow create: if resource == null && signedIn() && request.auth.uid == userId
+        && request.auth.token.firebase.sign_in_provider == 'anonymous'
+        && fileName.size() <= 400 && fileName.matches('[A-Za-z0-9._-]+')
+        && request.resource.metadata.keys().hasOnly(['uploadedBy'])
+        && request.resource.metadata.uploadedBy == userId && document();
+      allow update, delete: if false;
       allow read: if admin() || (signedIn() && request.auth.uid == userId && request.auth.token.firebase.sign_in_provider == 'anonymous');
     }
     match /projects/{projectId}/photos/{fileName} {
       allow read: if admin() || (approved() && activeProject(projectId));
-      allow create: if approved() && activeProject(projectId) && image();
-      allow delete: if admin() || (approved()
-        && activeProject(projectId)
-        && resource.metadata.uploadedBy == request.auth.uid);
+      allow create: if resource == null && approved() && activeProject(projectId) && image() && ownedUpload(fileName);
+      // Member deletion goes through deleteContentAttachment so the object and
+      // its record cannot be separated to replace somebody else's file.
+      allow delete: if admin();
       allow update: if false;
     }
     match /reports/{reportId}/photos/{fileName} {
@@ -54,20 +75,20 @@ service firebase.storage {
         reportVisibleToMember(reportId)
         || reportOwnedByRequester(reportId)
       ));
-      allow create: if approved() && reportAcceptsPhotos(reportId) && image();
-      allow delete: if admin() || (approved() && resource.metadata.uploadedBy == request.auth.uid);
+      allow create: if resource == null && approved() && reportAcceptsPhotos(reportId) && image() && ownedUpload(fileName);
+      allow delete: if admin();
       allow update: if false;
     }
     match /events/{eventId}/photos/{fileName} {
-      allow read: if approved();
-      allow create: if approved() && image();
-      allow delete: if admin() || (approved() && resource.metadata.uploadedBy == request.auth.uid);
+      allow read: if admin() || (approved() && eventExists(eventId));
+      allow create: if resource == null && approved() && eventExists(eventId) && image() && ownedUpload(fileName);
+      allow delete: if admin();
       allow update: if false;
     }
     match /events/{eventId}/minutes/{fileName} {
-      allow read: if approved();
-      allow create: if approved() && document();
-      allow delete: if admin() || (approved() && resource.metadata.uploadedBy == request.auth.uid);
+      allow read: if admin() || (approved() && eventExists(eventId));
+      allow create: if resource == null && approved() && eventExists(eventId) && document() && ownedUpload(fileName);
+      allow delete: if admin();
       allow update: if false;
     }
     match /{allPaths=**} { allow read, write: if false; }

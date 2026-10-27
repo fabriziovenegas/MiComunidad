@@ -60,8 +60,8 @@ test('profile identity and lookup integration', {skip: !host || !authHost}, asyn
     for (const [key, value] of Object.entries(original)) assert.deepEqual(application[key], value);
     assert.equal((await identity.findRequestStatus('00000001')).request, null);
     const visible = (await identity.findRequestStatus('00000002')).request;
-    assert.equal(visible.name, 'Updated Demo Name');
-    assert.equal(visible.email, 'up****@***.com');
+    assert.equal(Object.hasOwn(visible, 'name'), false);
+    assert.equal(visible.email, 'up****d@example.com');
     assert.equal(Object.hasOwn(visible, 'phone'), false);
     assert.equal((await db.doc('reports/report-a').get()).data().createdBy, 'resident-a');
     assert.equal((await db.doc('reports/report-a/comments/comment-a').get()).data().authorId, 'resident-a');
@@ -103,8 +103,8 @@ test('profile identity and lookup integration', {skip: !host || !authHost}, asyn
     assert.equal((await identity.findRequestStatus('00000001')).request, null);
     const result = (await identity.findRequestStatus('00000003')).request;
     assert.equal(result.status, 'retirado');
-    assert.equal(result.name, 'Updated Demo Name');
-    assert.equal(result.email, 'up****@***.com');
+    assert.equal(Object.hasOwn(result, 'name'), false);
+    assert.equal(result.email, 'up****d@example.com');
     const history = (await db.doc('accessRequests/request-a').get()).data();
     assert.equal(history.dni, '00000001');
     assert.equal(history.reason, 'Submitted demo reason');

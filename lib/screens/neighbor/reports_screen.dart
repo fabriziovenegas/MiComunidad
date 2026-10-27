@@ -10,6 +10,7 @@ import '../../widgets/report_detail_sheet.dart';
 import '../../widgets/report_edit_dialog.dart';
 import '../../widgets/report_status_dialog.dart';
 import '../../widgets/report_presentation.dart';
+import '../../widgets/report_category.dart';
 import '../../widgets/upload_picker.dart';
 import '../../widgets/current_report_author_name.dart';
 import '../../utils/text_encoding.dart';
@@ -117,6 +118,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                       const SizedBox(height: 10),
                                       DropdownButtonFormField<String>(
                                           initialValue: category,
+                                          isExpanded: true,
                                           decoration: const InputDecoration(
                                               labelText: 'Categoría'),
                                           items: const [
@@ -128,14 +130,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                           ]
                                               .map((value) => DropdownMenuItem(
                                                   value: value,
-                                                  child: Text(switch (value) {
-                                                    'seguridad' => 'Seguridad',
-                                                    'obras' => 'Obras',
-                                                    'iluminacion' =>
-                                                      'Iluminación',
-                                                    'limpieza' => 'Limpieza',
-                                                    _ => 'Otro',
-                                                  })))
+                                                  child: ReportCategoryLabel(
+                                                      category: value)))
                                               .toList(),
                                           onChanged: saving
                                               ? null

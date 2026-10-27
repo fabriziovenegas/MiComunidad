@@ -30,7 +30,7 @@ Future<void> present(WidgetTester tester, Widget child,
 
 void main() {
   testWidgets(
-      'preview keeps identity, state, location, percentage and actions without description or bar',
+      'preview keeps identity, state, a short description, location, percentage and actions',
       (tester) async {
     var opened = 0;
     var edited = 0;
@@ -47,7 +47,11 @@ void main() {
     ]) {
       expect(find.text(text), findsOneWidget);
     }
-    expect(find.text(example['description'] as String), findsNothing);
+    final description = find.text(example['description'] as String);
+    expect(description, findsOneWidget);
+    expect(tester.widget<Text>(description).maxLines, 2);
+    expect(tester.widget<Text>(description).overflow, TextOverflow.ellipsis);
+    expect(find.text('Descripción'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
     expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
     await tester.tap(find.text('Fotos y comentarios'));

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../models/report_edit.dart';
 import 'file_service.dart';
+import 'attachment_registry.dart';
 
 /// One contribution keeps the same identity across retries and app restarts.
 class PendingAttachment {
@@ -78,15 +79,18 @@ class FirebaseAttachmentDelivery implements AttachmentDelivery {
     FirebaseStorage? storage,
     String? Function()? currentUserId,
     Future<void> Function()? refreshAuth,
+    Future<void> Function(Map<String, dynamic>)? registerAttachment,
   })  : _firestore = firestore,
         _storage = storage,
         _currentUserId = currentUserId ?? _signedInUser,
-        _refreshAuth = refreshAuth ?? _refreshToken;
+        _refreshAuth = refreshAuth ?? _refreshToken,
+        _registerAttachment = registerAttachment ?? AttachmentRegistry.register;
 
   final FirebaseFirestore? _firestore;
   final FirebaseStorage? _storage;
   final String? Function() _currentUserId;
   final Future<void> Function() _refreshAuth;
+  final Future<void> Function(Map<String, dynamic>) _registerAttachment;
 
   static String? _signedInUser() {
     final user = FirebaseAuth.instance.currentUser;
@@ -193,19 +197,15 @@ class FirebaseAttachmentDelivery implements AttachmentDelivery {
         }
       }
     }
-    final url = await reference.getDownloadURL();
     _checkAccount(item);
     try {
-      await metadataRef.set({
-        'url': url,
+      await _registerAttachment({
+        'collection': item.collection,
+        'documentId': item.documentId,
+        'kind': item.kind,
+        'attachmentId': item.id,
         'storagePath': item.storagePath,
         'name': item.name,
-        'contentType': item.name.toLowerCase().endsWith('.pdf')
-            ? 'application/pdf'
-            : 'image',
-        'uploadedBy': item.userId,
-        'uploadId': item.id,
-        'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {
       // Existing rules forbid updates. Recover a completed create by reading it.

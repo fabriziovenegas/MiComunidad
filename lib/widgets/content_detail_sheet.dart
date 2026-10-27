@@ -1,7 +1,8 @@
+import 'private_storage_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../services/private_file_service.dart';
 import '../models/user_model.dart';
 import '../services/community_service.dart';
 import '../services/file_service.dart';
@@ -85,14 +86,17 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           selected: selected);
       if (mounted) {
         final message = switch (result.state) {
-          PendingSendState.sent => 'Archivo compartido correctamente.',
+          PendingSendState.sent ||
           PendingSendState.queued =>
-            'Archivo guardado en este dispositivo. El envío sigue pendiente y se reintentará con la app abierta.',
+            'Guardado correctamente.',
           PendingSendState.blocked =>
             'Archivo guardado en este dispositivo. ${result.reason} Revisa los pendientes.',
         };
         setState(() {
-          _uploadMessage = message;
+          // Pending/blocked uploads are shown by their section's live queue notice.
+          // Keeping the initial result here would outlive a later confirmation.
+          _uploadMessage =
+              result.state == PendingSendState.sent ? message : null;
           _uploadFailed = result.state == PendingSendState.blocked;
         });
         if (result.state == PendingSendState.blocked) {
@@ -171,12 +175,9 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
             ContentInformation(
                 collection: widget.collection,
                 data: widget.data,
+                documentId: widget.documentId,
                 reportId: isReport ? widget.documentId : null,
-                user: isReport ? widget.user : null),
-          PendingAttachmentsNotice(
-              collection: widget.collection,
-              documentId: widget.documentId,
-              userId: widget.user.userId),
+                user: widget.user),
           if (!photoLayout && !widget.readOnly)
             Row(children: [
               Expanded(
@@ -211,6 +212,11 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           Text(photoLayout ? 'Fotos compartidas' : 'Archivos compartidos',
               style: sectionStyle),
           SizedBox(height: photoLayout ? 16 : 8),
+          PendingAttachmentsNotice(
+              collection: widget.collection,
+              documentId: widget.documentId,
+              kind: photoLayout ? 'photos' : null,
+              userId: widget.user.userId),
           if (isAgenda)
             AgendaAttachments(
                 eventId: widget.documentId,
@@ -262,6 +268,11 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
               const Divider(height: 44),
               Text('Actas y documentos', style: sectionStyle),
               const SizedBox(height: 16),
+              PendingAttachmentsNotice(
+                  collection: widget.collection,
+                  documentId: widget.documentId,
+                  kind: 'minutes',
+                  userId: widget.user.userId),
               AgendaAttachments(
                   eventId: widget.documentId,
                   kind: 'minutes',
@@ -447,10 +458,16 @@ class _Attachments extends StatelessWidget {
                     (user.isAdmin || data['uploadedBy'] == user.userId);
                 return Stack(children: [
                   InkWell(
-                    onTap: () {
+                    onTap: () async {
                       if (isPdf) {
-                        launchUrl(Uri.parse(url),
-                            mode: LaunchMode.externalApplication);
+                        try {
+                          await PrivateFileService.open(url);
+                        } catch (_) {
+                          if (context.mounted) {
+                            showUploadError(
+                                context, 'No se pudo abrir el archivo.');
+                          }
+                        }
                         return;
                       }
                       Navigator.of(context).push(MaterialPageRoute(
@@ -474,7 +491,7 @@ class _Attachments extends StatelessWidget {
                                     Icon(Icons.picture_as_pdf, size: 38),
                                     Text('Acta PDF')
                                   ]))
-                          : Image.network(url,
+                          : PrivateStorageImage(url,
                               width: 110,
                               height: 110,
                               fit: BoxFit.cover,

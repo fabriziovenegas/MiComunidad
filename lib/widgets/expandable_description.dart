@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 /// Limits reading-only descriptions to four rendered lines, not a character count.
 class ExpandableDescription extends StatefulWidget {
-  const ExpandableDescription({super.key, required this.text, this.style});
+  const ExpandableDescription(
+      {super.key, required this.text, this.style, this.heading});
 
   final String text;
   final TextStyle? style;
+  final String? heading;
 
   @override
   State<ExpandableDescription> createState() => _ExpandableDescriptionState();
@@ -45,6 +47,18 @@ class _ExpandableDescriptionState extends State<ExpandableDescription> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (widget.heading != null && widget.text.trim().isNotEmpty) ...[
+                Semantics(
+                  header: true,
+                  child: Text(widget.heading!,
+                      textAlign: TextAlign.start,
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text(
                 widget.text,
                 style: style,

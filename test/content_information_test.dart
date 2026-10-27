@@ -41,7 +41,7 @@ void main() {
     expect(find.text('Leer menos'), findsOneWidget);
     expect(find.text('Demo hall'), findsOneWidget);
     expect(find.text('Ubicación'), findsNothing);
-    expect(find.text('Descripción'), findsNothing);
+    expect(find.text('Descripción'), findsOneWidget);
     expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
     expect(find.text('En proceso'), findsOneWidget);
     expect(find.text('80 % de avance'), findsOneWidget);
@@ -108,7 +108,7 @@ void main() {
     }
     expect(find.byType(Chip), findsNothing);
     expect(find.text('Fecha y hora'), findsNothing);
-    expect(find.text('Descripción'), findsNothing);
+    expect(find.text('Descripción'), findsOneWidget);
     expect(find.text('Ubicación'), findsNothing);
     expect(find.byIcon(Icons.calendar_today_outlined), findsOneWidget);
     expect(find.text('Leer más'), findsNothing);
@@ -231,7 +231,12 @@ void main() {
         expect(find.text('Iluminación'), findsOneWidget);
         expect(find.text('Prioridad alta'), findsOneWidget);
       }
-      expect(find.text('Descripción'), findsNothing);
+      expect(find.text('Descripción'), findsOneWidget);
+      final heading = find.text('Descripción');
+      final description = find.text(('Demo full description ' * 20).trim());
+      expect(tester.getTopLeft(heading).dx, tester.getTopLeft(description).dx);
+      expect(tester.getBottomLeft(heading).dy,
+          lessThan(tester.getTopLeft(description).dy));
       expect(find.text('Ubicación'), findsNothing);
       expect(find.byType(Chip), findsNothing);
       expect(tester.takeException(), isNull);

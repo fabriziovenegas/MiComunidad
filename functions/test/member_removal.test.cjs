@@ -104,7 +104,7 @@ test('consultar por DNI no devuelve el correo completo ni cambia el dato almacen
       approvedUserId: 'u', status, dni: '00000000', email: 'holaadios@example.com',
     }]]});
     const result = await f.context.exports.getAccessRequestStatus({data: {dni: '00000000'}});
-    assert.equal(result.request.email, 'ho****@***.com');
+    assert.equal(result.request.email, 'ho******s@example.com');
     assert.equal(f.data.accessRequests.get('r').email, 'holaadios@example.com');
     assert.ok(!JSON.stringify(result).includes('holaadios@example.com'));
   }
@@ -126,6 +126,6 @@ test('la baja conserva el DNI corregido y datos actuales sin sobrescribir la sol
   assert.equal((await f.context.exports.getAccessRequestStatus({data: {dni: '00000001'}})).request, null);
   const current = (await f.context.exports.getAccessRequestStatus({data: {dni: '00000002'}})).request;
   assert.equal(current.status, 'retirado');
-  assert.equal(current.name, 'Updated Demo');
-  assert.equal(current.email, 'up****@***.com');
+  assert.equal(Object.hasOwn(current, 'name'), false);
+  assert.equal(current.email, 'up****d@example.com');
 });

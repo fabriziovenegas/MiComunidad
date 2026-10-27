@@ -2,7 +2,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../services/private_file_service.dart';
 import '../../models/access_request.dart';
 import '../../models/user_model.dart';
 import '../../services/community_service.dart';
@@ -82,15 +82,8 @@ class _MembersScreenState extends State<MembersScreen>
       }
     } catch (error) {
       if (mounted) {
-        String message = "No se pudo completar la acción";
-
-        if (error is FirebaseFunctionsException) {
-          if (error.code == 'failed-precondition') {
-            message = request.status == 'rechazado' && approve
-                ? 'El servicio todavía no permite aprobar una solicitud rechazada.'
-                : 'Esta solicitud ya fue revisada. Actualiza la lista.';
-          }
-        }
+        final message = accessRequestReviewErrorMessage(error,
+            approve: approve, status: request.status);
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(message)));
       }
@@ -292,9 +285,19 @@ class _MembersScreenState extends State<MembersScreen>
                               _detail('Motivo', request.reason),
                               const SizedBox(height: 12),
                               OutlinedButton.icon(
-                                  onPressed: () => launchUrl(
-                                      Uri.parse(request.identityDocumentUrl),
-                                      mode: LaunchMode.externalApplication),
+                                  onPressed: () async {
+                                    try {
+                                      await PrivateFileService.open(
+                                          request.identityDocumentUrl);
+                                    } catch (_) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(const SnackBar(
+                                                content: Text(
+                                                    'No se pudo abrir el documento adjunto.')));
+                                      }
+                                    }
+                                  },
                                   icon: const Icon(Icons.description),
                                   label: const Text('Abrir documento adjunto')),
                               if (_canApprove(request) ||

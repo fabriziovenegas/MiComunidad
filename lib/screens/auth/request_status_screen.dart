@@ -31,10 +31,7 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
     super.initState();
     _dni.text = widget.initialDni ?? '';
     if (widget.initialRequest != null) {
-      _request = {
-        ...widget.initialRequest!,
-        'dni': widget.initialDni ?? widget.initialRequest!['dni'] ?? '',
-      };
+      _request = Map<String, dynamic>.from(widget.initialRequest!);
     }
   }
 
@@ -59,7 +56,7 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
       if (mounted) {
         setState(() => result == null
             ? _error = 'No encontramos una solicitud con ese DNI.'
-            : _request = {...result, 'dni': _dni.text});
+            : _request = result);
       }
     } catch (_) {
       if (mounted) {
@@ -188,10 +185,7 @@ class _StatusCard extends StatelessWidget {
     final date = parsedDate == null
         ? 'Pendiente de sincronización'
         : DateFormat('dd/MM/yyyy HH:mm').format(parsedDate);
-    final dni = request['dni'] as String? ?? '';
     final email = maskPublicEmail(request['email']);
-    final rejectionReason = request['rejectionReason']?.toString().trim() ?? '';
-    final maskedDni = dni.length == 8 ? '••••${dni.substring(4)}' : dni;
     return Card(
       color: color.withValues(alpha: .10),
       child: Padding(
@@ -208,25 +202,19 @@ class _StatusCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               status == 'aprobado'
-                  ? 'Tu cuenta fue habilitada. Revisa tu correo'
-                      '${email.isEmpty ? '' : ' ($email)'} '
-                      'para establecer la contraseña.'
+                  ? 'Tu cuenta fue habilitada. Revisa tu correo para establecer la contraseña.'
                   : status == 'rechazado'
-                      ? (rejectionReason.isNotEmpty
-                          ? rejectionReason
-                          : 'La solicitud no fue aprobada.')
+                      ? 'La solicitud no fue aprobada.'
                       : status == 'retirado'
                           ? 'Tu acceso anterior fue retirado. Puedes enviar una nueva solicitud de ingreso.'
                           : 'El administrador está verificando tus datos.',
               textAlign: TextAlign.center,
             ),
             const Divider(height: 32),
-            ListTile(
-                title: const Text('Solicitante'),
-                trailing: Text(request['name'] as String? ?? '')),
-            ListTile(
-                title: const Text('DNI registrado'), trailing: Text(maskedDni)),
             ListTile(title: const Text('Fecha de envío'), trailing: Text(date)),
+            ListTile(
+                title: const Text('Correo electrónico'),
+                subtitle: Text(email.isEmpty ? 'No disponible' : email)),
           ],
         ),
       ),

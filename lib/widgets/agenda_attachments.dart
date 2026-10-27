@@ -1,6 +1,7 @@
+import 'private_storage_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../services/private_file_service.dart';
 
 import '../models/user_model.dart';
 import '../services/community_service.dart';
@@ -33,9 +34,7 @@ class AgendaAttachments extends StatelessWidget {
     try {
       if (url.isEmpty) throw StateError('Missing attachment URL');
       if (_isPdf(data)) {
-        final opened = await launchUrl(Uri.parse(url),
-            mode: LaunchMode.externalApplication);
-        if (!opened) throw StateError('No application opened the PDF');
+        await PrivateFileService.open(url);
       } else {
         final index = imageUrls.indexOf(url);
         if (index < 0 || !context.mounted) return;
@@ -166,7 +165,7 @@ class AgendaAttachments extends StatelessWidget {
                                   onTap: () => _open(context, data, urls),
                                   child: ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
-                                      child: Image.network(
+                                      child: PrivateStorageImage(
                                           readableText(data['url']),
                                           fit: BoxFit.cover,
                                           errorBuilder: (_, __, ___) => Container(

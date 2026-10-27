@@ -84,7 +84,7 @@ test('author-only content editing rules', {skip: !enabled}, async (t) => {
     ['unapproved-admin', 'admin', 'pendiente'],
   ]) {
     const result = await request(`${base}/users/${uid}`, {
-      method: 'PATCH', data: {fields: fields({role, approvalStatus})},
+      method: 'PATCH', data: {fields: fields({role, approvalStatus, nombre: 'Demo User'})},
     });
     assert.equal(result.status, 200, JSON.stringify(result.body));
   }
@@ -224,20 +224,22 @@ test('author-only content editing rules', {skip: !enabled}, async (t) => {
 
   let dependencySerial = 0;
   for (const marker of [null, false, true]) {
-    await t.test(`new report deletion marker ${marker}: only absent/false allowed`, async () => {
+    await t.test(`new report deletion marker ${marker}: only absent allowed in the closed create schema`, async () => {
       const id = `create-with-marker-${String(marker)}`;
-      const result = await request(`${base}/reports/${id}`, {method: 'PATCH', uid: 'neighbor-a',
-        data: {fields: fields(report({moderationStatus: 'pendiente', status: 'pendiente',
-          ...(marker === null ? {} : {deletionInProgress: marker})}))},
+      const result = await request(`${base}:commit`, {method: 'POST', uid: 'neighbor-a',
+        data: {writes: [{update: {name: `projects/${project}/databases/(default)/documents/reports/${id}`,
+          fields: fields({title: 'Demo report', description: 'Fictional description', location: '', category: 'obras', priority: 'media', createdBy: 'neighbor-a', createdByName: 'Demo User', moderationStatus: 'pendiente', status: 'pendiente',
+            ...(marker === null ? {} : {deletionInProgress: marker})})}, currentDocument: {exists: false},
+          updateTransforms: ['createdAt', 'updatedAt'].map(fieldPath => ({fieldPath, setToServerValue: 'REQUEST_TIME'}))}]},
       });
-      assert.equal(result.status, marker === true ? 403 : 200, JSON.stringify(result.body));
+      assert.equal(result.status, marker === null ? 200 : 403, JSON.stringify(result.body));
     });
   }
   async function contribute(id, kind, patch, uid) {
     const name = `projects/${project}/databases/(default)/documents/reports/${id}/${kind}/dependency-${++dependencySerial}`;
     const result = await request(`${base}:commit`, {
       method: 'POST', uid, data: {writes: [{
-        update: {name, fields: fields(patch)}, currentDocument: {exists: false},
+        update: {name, fields: fields({...(kind === 'comments' ? {authorName: 'Demo User'} : {}), ...patch})}, currentDocument: {exists: false},
         updateTransforms: [{fieldPath: 'createdAt', setToServerValue: 'REQUEST_TIME'}],
       }]},
     });

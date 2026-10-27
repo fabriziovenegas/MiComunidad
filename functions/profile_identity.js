@@ -2,6 +2,7 @@ const {createHash} = require("node:crypto");
 const {maskPublicEmail} = require("./privacy");
 
 const fields = ["nombre", "dni", "phone", "email", "address", "timeLivingHere", "reason"];
+const residenceOptions = ["Menos de 1 año", "1 a 5 años", "5 a 10 años", "Más de 10 años"];
 
 function profileSnapshot(profile, original = {}) {
   return Object.fromEntries(fields.map((key) => {
@@ -72,8 +73,7 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
       // A historical DNI must not keep locating an account after a correction.
       if (lookupDni !== dni) continue;
       const result = {request: {
-        name: contact.name || "", email: maskPublicEmail(contact.email), status,
-        rejectionReason: data.rejectionReason || null,
+        status, email: maskPublicEmail(contact.email),
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || "",
       }};
       // A newer rejected duplicate must not hide the linked approved account.
@@ -158,12 +158,19 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
   }
 
   function normalized(data, previous) {
+    if (!data || typeof data !== "object" || Array.isArray(data) ||
+        Object.keys(data).some((key) => fields.includes(key) && typeof data[key] !== "string")) {
+      throw new HttpsError("invalid-argument", "El perfil contiene campos o tipos no permitidos.");
+    }
     const clean = (value) => String(value ?? "").trim();
     const profile = Object.fromEntries(fields.map((key) => [key,
       clean(Object.hasOwn(data, key) ? data[key] : previous[key]),
     ]));
     profile.nombre = profile.nombre.replace(/[<>&"']/g, "");
     profile.email = profile.email.toLowerCase();
+    if (Object.hasOwn(data, "timeLivingHere") && profile.timeLivingHere !== previous.timeLivingHere && !residenceOptions.includes(profile.timeLivingHere)) {
+      throw new HttpsError("invalid-argument", "Selecciona una opción válida para el tiempo en la comunidad.");
+    }
     if (profile.nombre.length < 3 || profile.nombre.length > 160 ||
         !/^\d{8}$/.test(profile.dni) || !/^\d{9}$/.test(profile.phone) ||
         !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(profile.email) || profile.email.length > 320) {
@@ -190,6 +197,11 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
   }
 
   async function submitAccessRequest(applicantUid, data) {
+    const allowed = ["requestId", "name", "dni", "phone", "email", "address", "timeLivingHere", "reason", "identityDocumentPath", "identityDocumentUrl"];
+    if (!data || typeof data !== "object" || Array.isArray(data) ||
+        Object.keys(data).some((key) => allowed.includes(key) && typeof data[key] !== "string")) {
+      throw new HttpsError("invalid-argument", "La solicitud contiene campos o tipos no permitidos.");
+    }
     const requestId = String(data.requestId || "");
     if (!applicantUid || !/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) {
       throw new HttpsError("invalid-argument", "La solicitud no es válida. Inténtalo nuevamente.");
@@ -198,6 +210,9 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
       String(data[key === "nombre" ? "name" : key] ?? "").trim(),
     ]));
     profile.email = profile.email.toLowerCase();
+    if (!residenceOptions.includes(profile.timeLivingHere)) {
+      throw new HttpsError("invalid-argument", "Selecciona una opción válida para el tiempo en la comunidad.");
+    }
     if (!profile.nombre || profile.nombre.length > 160 ||
         !/^\d{8}$/.test(profile.dni) || !/^\d{9}$/.test(profile.phone) ||
         !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(profile.email) || profile.email.length > 320) {

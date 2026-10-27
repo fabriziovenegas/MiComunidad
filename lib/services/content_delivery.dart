@@ -74,9 +74,10 @@ class FirebaseContentDelivery implements ContentDelivery {
         }
         transaction.set(ref, {
           ...item.fields,
-          if (item.isComment)
-            'authorId': item.userId
-          else ...{
+          if (item.isComment) ...{
+            'authorId': item.userId,
+            'authorName': user!['nombre'],
+          } else ...{
             'createdBy': item.userId,
             'updatedAt': FieldValue.serverTimestamp()
           },

@@ -38,9 +38,9 @@ test('atomic access requests and current-DNI lookup', {skip: !host || !authHost}
   assert.equal(rules.status, 200);
   const identity = createProfileIdentity({firestore: db, auth, HttpsError, FieldValue});
   const submit = createAccessRequestSubmission({identity, HttpsError,
-    storage: () => ({bucket: () => ({file: (name) => ({name, getMetadata: async () => [{
+    storage: () => ({bucket: () => ({file: (name) => ({name, bucket: {name: 'demo-documents.appspot.com'}, setMetadata: async () => {}, getMetadata: async () => [{
       size: '1234', contentType: 'application/pdf', metadata: {uploadedBy: name.split('/')[1]},
-    }]})})}), getDownloadURL: async () => 'https://example.com/fictional-document'});
+    }], download: async () => [Buffer.from('%PDF-1.4')]})})}), getDownloadURL: async () => 'https://example.com/fictional-document'});
   const anonymous = async () => {
     const user = await auth.createUser({uid: `anonymous-${db.collection('accessRequests').doc().id}`});
     const now = Math.floor(Date.now() / 1000);
@@ -68,7 +68,7 @@ test('atomic access requests and current-DNI lookup', {skip: !host || !authHost}
     profileSnapshot, getFirestore: () => db, getAuth: () => auth, profileIdentity: () => identity,
     sendEmail: async () => true, console: {error: () => {}}};
   const guard = source.indexOf('async function requireAdmin');
-  vm.runInNewContext(source.slice(guard, source.indexOf('function hash', guard)), context);
+  vm.runInNewContext(source.slice(guard, source.indexOf('async function sendEmail', guard)), context);
   const review = source.indexOf('exports.reviewAccessRequest =');
   vm.runInNewContext(source.slice(review, source.indexOf('exports.setUserRole =', review)), context);
   const approve = (requestId) => context.exports.reviewAccessRequest({auth: {uid: 'admin-demo'},
@@ -132,8 +132,8 @@ test('atomic access requests and current-DNI lookup', {skip: !host || !authHost}
     await db.doc('accessRequests/legacy-rejected').set(duplicate);
     const visible = (await identity.findRequestStatus('00000001')).request;
     assert.equal(visible.status, 'aprobado');
-    assert.equal(visible.name, 'Fictional Applicant');
-    assert.equal(visible.email, 'ap****@***.com');
+    assert.equal(Object.hasOwn(visible, 'name'), false);
+    assert.equal(visible.email, 'ap******t@example.com');
     assert.equal((await db.collection('users').where('dni', '==', '00000001').get()).size, 1);
     assert.equal((await auth.getUser(approved.approvedUserId)).customClaims.approved, true);
     winner.uid = approved.approvedUserId;
@@ -145,7 +145,7 @@ test('atomic access requests and current-DNI lookup', {skip: !host || !authHost}
     await identity.updateOwnProfile(winner.uid, profile('00000003', {nombre: 'Corrected Resident', email: 'applicant@example.com'}));
     const visible = (await identity.findRequestStatus('00000003')).request;
     assert.equal(visible.status, 'aprobado');
-    assert.equal(visible.name, 'Corrected Resident');
+    assert.equal(Object.hasOwn(visible, 'name'), false);
     assert.notEqual((await identity.findRequestStatus('00000001')).request.status, 'aprobado');
     const a = await anonymous();
     await submit({auth: a, data: payload(a, '00000001', {email: 'new@example.com'})});

@@ -46,8 +46,78 @@ Future<void> present(WidgetTester tester, Widget child,
 }
 
 void main() {
+  testWidgets('edit action does not add blank space below a short title',
+      (tester) async {
+    Widget card({VoidCallback? onEdit}) => ReportPreviewCard(
+        data: example,
+        status: 'pendiente',
+        author: const Text('Autor de demostración'),
+        onOpen: () {},
+        onEdit: onEdit);
+
+    await present(tester, card());
+    final plainHeight = tester.getSize(find.byType(ReportPreviewCard)).height;
+    final plainGap =
+        tester.getTopLeft(find.text(example['description'] as String)).dy -
+            tester.getBottomLeft(find.text(example['title'] as String)).dy;
+
+    var edits = 0;
+    await present(tester, card(onEdit: () => edits++));
+    final editGap =
+        tester.getTopLeft(find.text(example['description'] as String)).dy -
+            tester.getBottomLeft(find.text(example['title'] as String)).dy;
+    expect(editGap, plainGap);
+    expect(editGap, 12);
+    expect(tester.getSize(find.byType(ReportPreviewCard)).height, plainHeight);
+    final editRect = tester.getRect(find.byTooltip('Editar mi reporte'));
+    expect(editRect.width, greaterThanOrEqualTo(48));
+    expect(editRect.height, greaterThanOrEqualTo(48));
+    // The edge of the touch target also edits instead of opening the report.
+    await tester.tapAt(editRect.bottomRight - const Offset(2, 2));
+    expect(edits, 1);
+  });
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets(
+        'long title stays within two lines clear of the pencil at text scale $scale',
+        (tester) async {
+      final title =
+          ('Reporte sobre iluminación en el acceso peatonal ' * 5).trim();
+      var opens = 0;
+      var edits = 0;
+      await present(
+          tester,
+          ReportPreviewCard(
+              data: {...example, 'title': title},
+              status: 'pendiente',
+              author: const Text('Autor de demostración'),
+              onOpen: () => opens++,
+              onEdit: () => edits++),
+          width: 320,
+          scale: scale);
+      final titleFinder = find.text(title);
+      final text = tester.widget<Text>(titleFinder);
+      expect(text.maxLines, 2);
+      expect(text.overflow, TextOverflow.ellipsis);
+      final titleRect = tester.getRect(titleFinder);
+      final editRect = tester.getRect(find.byTooltip('Editar mi reporte'));
+      expect(titleRect.height, greaterThan(48));
+      expect(titleRect.right, lessThanOrEqualTo(editRect.left));
+      expect(
+          tester.getTopLeft(find.text(example['description'] as String)).dy -
+              titleRect.bottom,
+          12);
+      await tester.tap(find.byTooltip('Editar mi reporte'));
+      expect(edits, 1);
+      expect(opens, 0);
+      await tester.tap(titleFinder);
+      expect(opens, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
-      'preview keeps title, state, priority, author and location without repeating the description',
+      'preview keeps title, short description, state, priority, author and location',
       (tester) async {
     var opens = 0;
     var edits = 0;
@@ -68,7 +138,11 @@ void main() {
     ]) {
       expect(find.text(text), findsOneWidget);
     }
-    expect(find.text(example['description'] as String), findsNothing);
+    final description = find.text(example['description'] as String);
+    expect(description, findsOneWidget);
+    expect(tester.widget<Text>(description).maxLines, 2);
+    expect(tester.widget<Text>(description).overflow, TextOverflow.ellipsis);
+    expect(find.text('Descripción'), findsNothing);
     expect(find.text('Iluminación'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
     await tester.tap(find.text('Luminaria apagada'));

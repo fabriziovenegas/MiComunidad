@@ -10,22 +10,29 @@ class ContentInformation extends StatelessWidget {
     super.key,
     required this.collection,
     required this.data,
+    this.documentId,
     this.reportId,
     this.user,
   });
 
   final String collection;
   final Map<String, dynamic> data;
+  final String? documentId;
   final String? reportId;
   final AppUser? user;
 
   @override
   Widget build(BuildContext context) {
-    if (collection == 'projects') return ProjectInformation(data: data);
-    if (collection == 'reports') {
-      return ReportInformation(data: data, reportId: reportId, user: user);
+    if (collection == 'projects') {
+      return ProjectInformation(data: data, projectId: documentId, user: user);
     }
-    if (collection == 'events') return AgendaInformation(data: data);
+    if (collection == 'reports') {
+      return ReportInformation(
+          data: data, reportId: reportId ?? documentId, user: user);
+    }
+    if (collection == 'events') {
+      return AgendaInformation(data: data, eventId: documentId, user: user);
+    }
     return const SizedBox.shrink();
   }
 }

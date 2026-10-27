@@ -7,6 +7,7 @@ import '../models/access_request.dart';
 import '../models/user_model.dart';
 import '../models/report_edit.dart';
 import 'file_service.dart';
+import 'attachment_registry.dart';
 import 'pending_upload_service.dart';
 import 'report_content_editor.dart';
 import 'report_comment_writer.dart';
@@ -82,12 +83,39 @@ class CommunityService {
   final Set<String> _reportsBeingDeleted = <String>{};
 
   Future<String?> currentReportAuthorName(String reportId) async {
-    final result = await _functions
-        .httpsCallable('getReportAuthorName',
-            options: HttpsCallableOptions(timeout: const Duration(seconds: 10)))
-        .call<Map<String, dynamic>>({'reportId': reportId});
-    final name = result.data['name'];
-    return name is String && name.trim().isNotEmpty ? name.trim() : null;
+    return _currentAuthorName('getReportAuthorName', {'reportId': reportId});
+  }
+
+  Future<String?> currentContentAuthorName(
+      String collection, String contentId) async {
+    if (!const ['projects', 'events'].contains(collection)) {
+      throw ArgumentError.value(collection, 'collection');
+    }
+    return _currentAuthorName('getContentAuthorName',
+        {'collection': collection, 'contentId': contentId});
+  }
+
+  Future<String?> _currentAuthorName(
+      String function, Map<String, dynamic> data) async {
+    try {
+      final result = await _functions
+          .httpsCallable(function,
+              options:
+                  HttpsCallableOptions(timeout: const Duration(seconds: 10)))
+          .call<Map<String, dynamic>>(data);
+      final name = result.data['name'];
+      return name is String && name.trim().isNotEmpty ? name.trim() : null;
+    } on FirebaseFunctionsException catch (error) {
+      // This optional refresh has a saved-name fallback when offline.
+      // Catch expected transport failures here, before they leave the service.
+      if (const ['unavailable', 'deadline-exceeded', 'network-request-failed']
+          .contains(error.code)) {
+        return null;
+      }
+      rethrow;
+    } on TimeoutException {
+      return null;
+    }
   }
 
   Future<PublicCommunitySummary> publicSummary() async {
@@ -360,15 +388,19 @@ class CommunityService {
     }
   }
 
-  Future<void> createReport(Map<String, dynamic> data) =>
-      _db.collection('reports').add({
-        ...data,
-        'createdBy': FirebaseAuth.instance.currentUser!.uid,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'status': 'pendiente',
-        'moderationStatus': 'pendiente',
-      });
+  Future<void> createReport(Map<String, dynamic> data) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final profile = await _db.collection('users').doc(uid).get();
+    await _db.collection('reports').add({
+      ...data,
+      'createdBy': uid,
+      'createdByName': profile.data()?['nombre'],
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'status': 'pendiente',
+      'moderationStatus': 'pendiente',
+    });
+  }
 
   Future<void> updateReport(String id, Map<String, dynamic> data) =>
       _db.collection('reports').doc(id).update({
@@ -609,14 +641,16 @@ class CommunityService {
       ).add(reportId: documentId, text: text, authorName: authorName);
       return;
     }
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final profile = await _db.collection('users').doc(uid).get();
     await _db
         .collection(collection)
         .doc(documentId)
         .collection('comments')
         .add({
       'text': text.trim(),
-      'authorId': FirebaseAuth.instance.currentUser!.uid,
-      'authorName': authorName,
+      'authorId': uid,
+      'authorName': profile.data()?['nombre'],
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -654,16 +688,12 @@ class CommunityService {
     String? storagePath,
     String? downloadUrl,
   }) async {
-    await FileService.delete(
-      storagePath: storagePath,
-      downloadUrl: downloadUrl,
-    );
-    await _db
-        .collection(collection)
-        .doc(documentId)
-        .collection(kind)
-        .doc(attachmentId)
-        .delete();
+    await AttachmentRegistry.delete({
+      'collection': collection,
+      'documentId': documentId,
+      'kind': kind,
+      'attachmentId': attachmentId,
+    });
   }
 
   Future<void> moderateReport({
