@@ -24,7 +24,11 @@ class NoticeUploads extends Mock implements PendingUploadService {
 }
 
 PendingAttachment attachment(String id, String kind,
-        {String collection = 'events', String parent = 'activity'}) =>
+        {String collection = 'events',
+        String parent = 'activity',
+        bool waiting = true,
+        bool blocked = false,
+        String? reason}) =>
     PendingAttachment(
         id: id,
         collection: collection,
@@ -32,7 +36,10 @@ PendingAttachment attachment(String id, String kind,
         kind: kind,
         localPath: '/local/$id',
         name: '$id.${kind == 'minutes' ? 'pdf' : 'jpg'}',
-        userId: 'fictional-owner');
+        userId: 'fictional-owner',
+        waitingForConnection: waiting,
+        blocked: blocked,
+        reason: reason);
 
 void main() {
   late NoticeUploads uploads;
@@ -143,5 +150,50 @@ void main() {
     expect(find.text('acta.pdf'), findsOneWidget);
     expect(find.text('photo.jpg'), findsNothing);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final kind in ['photos', 'minutes']) {
+    testWidgets(
+        '$kind uploading shows progress without an offline pending card',
+        (tester) async {
+      uploads.items = [attachment('active', kind, waiting: false)];
+      await tester.pumpWidget(notice(kind: kind));
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(find.text('Subiendo archivo…'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(Card), findsNothing);
+      expect(find.textContaining('pendiente de envío'), findsNothing);
+      uploads.update([attachment('active', kind)]);
+      await tester.pumpAndSettle();
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('1 archivo pendiente de envío'), findsOneWidget);
+      await tester.tap(find.byType(ExpansionTile));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Se subirá cuando se restablezca la conexión'),
+          findsOneWidget);
+      uploads.update([attachment('active', kind, waiting: false)]);
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(find.textContaining('pendiente de envío'), findsNothing);
+      uploads.update([]);
+      await tester.pumpAndSettle();
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+  }
+
+  testWidgets('permission failures do not claim that internet was lost',
+      (tester) async {
+    uploads.items = [
+      attachment('denied', 'photos',
+          waiting: false,
+          blocked: true,
+          reason: 'No tienes permiso o este contenido ya no admite cambios.')
+    ];
+    await tester.pumpWidget(notice());
+    await tester.pumpAndSettle();
+    expect(find.text('No se pudo completar la subida.'), findsOneWidget);
+    expect(find.textContaining('No tienes permiso'), findsOneWidget);
+    expect(find.textContaining('restablezca la conexión'), findsNothing);
+    expect(find.textContaining('pendiente de envío'), findsNothing);
+    expect(find.text('Reintentar'), findsOneWidget);
   });
 }

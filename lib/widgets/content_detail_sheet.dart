@@ -86,9 +86,10 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           selected: selected);
       if (mounted) {
         final message = switch (result.state) {
-          PendingSendState.sent ||
-          PendingSendState.queued =>
-            'Guardado correctamente.',
+          PendingSendState.sent => 'Archivo subido correctamente.',
+          PendingSendState.queued => result.reason == null
+              ? 'Guardado en este teléfono. Pendiente de envío.'
+              : 'Archivo guardado en este teléfono. ${result.reason}',
           PendingSendState.blocked =>
             'Archivo guardado en este dispositivo. ${result.reason} Revisa los pendientes.',
         };
@@ -97,9 +98,10 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           // Keeping the initial result here would outlive a later confirmation.
           _uploadMessage =
               result.state == PendingSendState.sent ? message : null;
-          _uploadFailed = result.state == PendingSendState.blocked;
+          _uploadFailed =
+              result.state == PendingSendState.blocked || result.reason != null;
         });
-        if (result.state == PendingSendState.blocked) {
+        if (result.state == PendingSendState.blocked || result.reason != null) {
           showUploadError(context, message);
         } else {
           showSuccessNotice(context, message);

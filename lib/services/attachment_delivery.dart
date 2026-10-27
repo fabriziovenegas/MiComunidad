@@ -19,6 +19,7 @@ class PendingAttachment {
     required this.userId,
     this.completed = false,
     this.blocked = false,
+    this.waitingForConnection = true,
     this.reason,
     this.projectId,
   });
@@ -32,6 +33,7 @@ class PendingAttachment {
   final String userId;
   final bool completed;
   final bool blocked;
+  final bool waitingForConnection;
   final String? reason;
   final String? projectId;
 
@@ -50,6 +52,7 @@ class PendingAttachment {
         userId: json['userId'] as String,
         completed: json['completed'] == true,
         blocked: json['blocked'] == true,
+        waitingForConnection: json['waitingForConnection'] != false,
         reason: json['reason'] as String?,
         projectId: json['projectId'] as String?,
       );
@@ -64,6 +67,7 @@ class PendingAttachment {
         'userId': userId,
         'completed': completed,
         'blocked': blocked,
+        'waitingForConnection': waitingForConnection,
         'reason': reason,
         'projectId': projectId,
       };

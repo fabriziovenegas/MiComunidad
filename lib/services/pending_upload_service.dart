@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'file_service.dart';
 import 'attachment_delivery.dart';
 import 'pending_send.dart';
+import 'upload_connection.dart';
 
 class UploadSendResult extends PendingSendResult {
   const UploadSendResult(super.state, {super.reason, this.error});
@@ -24,10 +25,12 @@ class PendingUploadService with WidgetsBindingObserver {
     String? Function()? currentUserId,
     Future<Directory> Function()? supportDirectory,
     String Function()? projectId,
+    Future<bool> Function()? isOffline,
     this.foregroundWait = const Duration(seconds: 4),
   })  : _delivery = delivery ?? FirebaseAttachmentDelivery(),
         _currentUserId = currentUserId ?? _signedInUser,
         _supportDirectory = supportDirectory ?? getApplicationSupportDirectory,
+        _isOffline = isOffline ?? (() => UploadConnection.isOffline()),
         _projectId = projectId ?? (() => Firebase.app().options.projectId);
   static final PendingUploadService instance = PendingUploadService();
 
@@ -35,10 +38,13 @@ class PendingUploadService with WidgetsBindingObserver {
   final String? Function() _currentUserId;
   final Future<Directory> Function() _supportDirectory;
   final String Function() _projectId;
+  final Future<bool> Function() _isOffline;
   final Duration foregroundWait;
   final _changes = StreamController<void>.broadcast();
   StreamSubscription<User?>? _auth;
+  StreamSubscription<bool?>? _connection;
   final Map<String, Future<void>> _inFlight = {};
+  final Map<String, Future<UploadSendResult>> _attempts = {};
   Future<void> _queueTail = Future<void>.value();
 
   static String? _signedInUser() {
@@ -68,6 +74,11 @@ class PendingUploadService with WidgetsBindingObserver {
     _auth = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null && !user.isAnonymous) _retrySafely();
     });
+    _connection = UploadConnection.changes.listen((offline) {
+      if (offline == false) _retrySafely();
+    }, onError: (Object _) {
+      // A missing native listener leaves periodic/in-app retries available.
+    });
     _retrySafely();
   }
 
@@ -76,6 +87,8 @@ class PendingUploadService with WidgetsBindingObserver {
     _timer = null;
     _auth?.cancel();
     _auth = null;
+    _connection?.cancel();
+    _connection = null;
     WidgetsBinding.instance.removeObserver(this);
   }
 
@@ -155,26 +168,104 @@ class PendingUploadService with WidgetsBindingObserver {
         kind: kind,
         selected: selected,
         userId: userId);
-    return _attempt(item).timeout(foregroundWait,
-        onTimeout: () => const UploadSendResult(PendingSendState.queued));
+    // Keep waiting for a slow connected upload. Only a connectivity check or a
+    // real delivery failure may move it out of the foreground uploading state.
+    return _attempt(item);
   }
 
-  Future<UploadSendResult> _attempt(PendingAttachment item) async {
+  Future<bool> _offline() async {
+    try {
+      return await _isOffline()
+          .timeout(const Duration(seconds: 6), onTimeout: () => false);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _status(PendingAttachment item,
+          {required bool waitingForConnection,
+          bool blocked = false,
+          String? reason}) =>
+      _withQueueLock(() async {
+        final items = await _load();
+        final matches = items.where((entry) => entry.id == item.id);
+        if (matches.isEmpty || matches.first.completed) return false;
+        await _save(items
+            .map((entry) => entry.id == item.id
+                ? PendingAttachment.fromJson({
+                    ...entry.toJson(),
+                    'waitingForConnection': waitingForConnection,
+                    'blocked': blocked,
+                    'reason': reason
+                  })
+                : entry)
+            .toList());
+        return true;
+      });
+
+  Future<UploadSendResult> _attempt(PendingAttachment item) {
+    final previous = _attempts[item.id];
+    if (previous != null) return previous;
+    late final Future<UploadSendResult> operation;
+    operation = Future<UploadSendResult>(() async {
+      try {
+        return await _waitForDelivery(item);
+      } finally {
+        if (identical(_attempts[item.id], operation)) _attempts.remove(item.id);
+      }
+    });
+    _attempts[item.id] = operation;
+    return operation;
+  }
+
+  Future<UploadSendResult> _waitForDelivery(PendingAttachment item) async {
+    if (!item.completed && await _offline()) {
+      final retained = await _status(item, waitingForConnection: true);
+      return UploadSendResult(
+          retained ? PendingSendState.queued : PendingSendState.sent);
+    }
+    await _status(item, waitingForConnection: false);
+    UploadSendResult? settled;
+    // This outcome remains observed even if the screen returns an offline
+    // result while the Firebase SDK still has a reconnecting request in flight.
+    final outcome = _perform(item).then((value) {
+      settled = value;
+      return value;
+    }, onError: (Object error, StackTrace stack) {
+      final value = UploadSendResult(PendingSendState.blocked,
+          reason: pendingFailureReason(error), error: error);
+      settled = value;
+      return value;
+    });
+    while (true) {
+      final result = await outcome
+          .then<UploadSendResult?>((value) => value)
+          .timeout(foregroundWait, onTimeout: () => null);
+      if (result != null) return result;
+      if (await _offline()) {
+        if (settled != null) return settled!;
+        final retained = await _status(item, waitingForConnection: true);
+        if (settled != null) return settled!;
+        return UploadSendResult(
+            retained ? PendingSendState.queued : PendingSendState.sent);
+      }
+    }
+  }
+
+  Future<UploadSendResult> _perform(PendingAttachment item) async {
     try {
       await _deliverOnce(item);
       return const UploadSendResult(PendingSendState.sent);
     } catch (error) {
       final blocked = !pendingFailureIsTemporary(error);
-      final reason = blocked ? pendingFailureReason(error) : null;
-      await _withQueueLock(() async {
-        final items = await _load();
-        await _save(items
-            .map((entry) => entry.id == item.id
-                ? PendingAttachment.fromJson(
-                    {...entry.toJson(), 'blocked': blocked, 'reason': reason})
-                : entry)
-            .toList());
-      });
+      final offline = !blocked && await _offline();
+      final reason = blocked
+          ? pendingFailureReason(error)
+          : offline
+              ? null
+              : 'No se pudo completar la subida. Reintenta en unos momentos.';
+      await _status(item,
+          waitingForConnection: offline, blocked: blocked, reason: reason);
       return UploadSendResult(
           blocked ? PendingSendState.blocked : PendingSendState.queued,
           reason: reason,
@@ -268,6 +359,7 @@ class PendingUploadService with WidgetsBindingObserver {
       name: selected.name,
       userId: userId,
       projectId: project,
+      waitingForConnection: false,
     );
     await _withQueueLock(() async {
       final items = await _load()

@@ -114,6 +114,7 @@ void main() {
           delivery: sender,
           currentUserId: () => currentUser,
           projectId: () => 'demo-upload-test',
+          isOffline: () async => false,
           supportDirectory: () async => temporary);
 
   Future<bool> upload(
@@ -443,7 +444,7 @@ void main() {
       expect(await queue(), isEmpty);
     });
   }
-  test('slow upload confirms a durable copy without waiting indefinitely',
+  test('slow connected upload waits for confirmation, not the old timeout',
       () async {
     final ack = Completer<void>();
     final controlled = ControlledDelivery()..operation = (_) => ack.future;
@@ -452,18 +453,28 @@ void main() {
         currentUserId: () => currentUser,
         supportDirectory: () async => temporary,
         projectId: () => 'demo-upload-test',
+        isOffline: () async => false,
         foregroundWait: const Duration(milliseconds: 20));
-    final result = await service.send(
-        collection: 'projects',
-        documentId: 'demo-project',
-        kind: 'photos',
-        selected: SelectedUpload(
-            PlatformFile(name: 'photo.png', size: 3, path: source.path)));
-    expect(result.state.name, 'queued');
+    var finished = false;
+    final sending = service
+        .send(
+            collection: 'projects',
+            documentId: 'demo-project',
+            kind: 'photos',
+            selected: SelectedUpload(
+                PlatformFile(name: 'photo.png', size: 3, path: source.path)))
+        .then((value) {
+      finished = true;
+      return value;
+    });
+    await until(() => controlled.calls.isNotEmpty);
+    await Future<void>.delayed(const Duration(milliseconds: 70));
+    expect(finished, false);
     expect(await queue(), hasLength(1));
-    final retry = service.processPending();
+    expect(
+        (await service.pendingFor('owner')).single.waitingForConnection, false);
     ack.complete();
-    await retry;
+    expect((await sending).state.name, 'sent');
     expect(controlled.calls, hasLength(1));
     expect(await queue(), isEmpty);
   });
@@ -478,7 +489,8 @@ void main() {
         delivery: controlled,
         currentUserId: () => currentUser,
         supportDirectory: () async => temporary,
-        projectId: () => 'other-project');
+        projectId: () => 'other-project',
+        isOffline: () async => false);
     expect(await other.pendingFor('owner'), isEmpty);
     await other.processPending();
     expect(controlled.calls, hasLength(1));
@@ -526,5 +538,84 @@ void main() {
     expect(
         await File((await queue()).single['localPath'] as String).readAsBytes(),
         [1, 2, 3]);
+  });
+
+  for (final kind in ['photos', 'minutes']) {
+    test(
+        '$kind queues only after an actual offline check and sends on reconnect',
+        () async {
+      var disconnected = true;
+      final controlled = ControlledDelivery();
+      service = PendingUploadService(
+          delivery: controlled,
+          currentUserId: () => currentUser,
+          projectId: () => 'demo-upload-test',
+          supportDirectory: () async => temporary,
+          isOffline: () async => disconnected);
+      final result = await service.send(
+          collection: 'events',
+          documentId: 'demo-project',
+          kind: kind,
+          selected: SelectedUpload(PlatformFile(
+              name: kind == 'photos' ? 'photo.png' : 'minutes.pdf',
+              size: 3,
+              path: source.path)));
+      expect(result.state.name, 'queued');
+      expect(controlled.calls, isEmpty);
+      expect((await service.pendingFor('owner')).single.waitingForConnection,
+          true);
+      disconnected = false;
+      await service.processPending();
+      expect(controlled.calls, hasLength(1));
+      expect(await queue(), isEmpty);
+    });
+  }
+
+  test('connection lost during upload retains one copy and one in-flight send',
+      () async {
+    var disconnected = false;
+    final acknowledgement = Completer<void>();
+    final controlled = ControlledDelivery()
+      ..operation = (_) => acknowledgement.future;
+    service = PendingUploadService(
+        delivery: controlled,
+        currentUserId: () => currentUser,
+        projectId: () => 'demo-upload-test',
+        supportDirectory: () async => temporary,
+        isOffline: () async => disconnected,
+        foregroundWait: const Duration(milliseconds: 20));
+    final sending = upload();
+    await until(() => controlled.calls.isNotEmpty);
+    disconnected = true;
+    expect(await sending, true);
+    expect(
+        (await service.pendingFor('owner')).single.waitingForConnection, true);
+    disconnected = false;
+    final retry = service.processPending();
+    acknowledgement.complete();
+    await retry;
+    expect(controlled.calls, hasLength(1));
+    expect(await queue(), isEmpty);
+  });
+
+  test('backend unavailable with internet is retained as an error, not offline',
+      () async {
+    final controlled = ControlledDelivery()
+      ..operation = (_) async => throw offline();
+    service = makeService(controlled);
+    final result = await service.send(
+        collection: 'projects',
+        documentId: 'demo-project',
+        kind: 'photos',
+        selected: SelectedUpload(
+            PlatformFile(name: 'photo.png', size: 3, path: source.path)));
+    expect(result.state.name, 'queued');
+    expect(result.reason, contains('No se pudo completar la subida'));
+    final pending = (await service.pendingFor('owner')).single;
+    expect(pending.waitingForConnection, false);
+    expect(pending.blocked, false);
+    controlled.operation = null;
+    await service.processPending();
+    expect(await queue(), isEmpty);
   });
 }
