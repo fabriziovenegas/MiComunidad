@@ -212,26 +212,30 @@ class _AboutSection extends StatelessWidget {
                 final data = snapshot.data;
                 final loading =
                     snapshot.connectionState == ConnectionState.waiting;
-                return Row(
-                  children: [
-                    Expanded(
-                      child: _StatCard(
-                        icon: Icons.group_rounded,
-                        value: loading
-                            ? '…'
-                            : (data?.activeMembers ?? 0).toString(),
-                        label: 'VECINOS ACTIVOS',
+                return IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.group_rounded,
+                          value: loading
+                              ? '…'
+                              : (data?.activeMembers ?? 0).toString(),
+                          label: 'Vecinos\nactivos',
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _StatCard(
-                        icon: Icons.handyman_rounded,
-                        value: loading ? '…' : (data?.projects ?? 0).toString(),
-                        label: 'PROYECTOS\nREGISTRADOS',
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.handyman_rounded,
+                          value:
+                              loading ? '…' : (data?.projects ?? 0).toString(),
+                          label: 'Proyectos\nregistrados',
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 );
               },
             ),
@@ -305,11 +309,11 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 126),
-      padding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(minHeight: 148),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
         color: const Color(0xFFF8F8FF),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE3E5F0)),
         boxShadow: const [
           BoxShadow(
@@ -320,27 +324,37 @@ class _StatCard extends StatelessWidget {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: const Color(0xFF07864F), size: 22),
-          const SizedBox(height: 8),
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE2F6EC),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: const Color(0xFF07864F), size: 24),
+          ),
+          const SizedBox(height: 6),
           Text(
             value,
             style: const TextStyle(
               color: Color(0xFF0B1C30),
-              fontSize: 24,
-              height: 1,
-              fontWeight: FontWeight.w700,
+              fontSize: 28,
+              height: 1.05,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             label,
+            textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Color(0xFF344054),
-              fontSize: 11,
-              height: 1.25,
-              fontWeight: FontWeight.w600,
+              color: Color(0xFF0B1C30),
+              fontSize: 14,
+              height: 1.22,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],

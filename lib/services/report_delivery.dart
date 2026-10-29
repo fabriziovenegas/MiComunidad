@@ -140,6 +140,7 @@ class FirebaseReportDelivery implements ReportDelivery {
     }
     if (!exists) {
       _checkAccount(item);
+      await FileService.validateLocalFileFormat(item.photoName!, photo.path);
       await reference.putFile(
           photo,
           SettableMetadata(

@@ -212,3 +212,17 @@ test('approval reserves the DNI, preserves submitted fields and blocks competing
   await assert.rejects(f.identity.saveApprovedProfile(f.db.collection('accessRequests').doc('request-a'),
     'resident-b', profile(), {status: 'aprobado'}), {code: 'failed-precondition'});
 });
+
+test('approval transaction refuses any final request state without creating a profile or keys', async () => {
+  for (const status of ['rechazado', 'aprobado', 'retirado']) {
+    const f = setup({members: [], requests: [['request-a', application({status, approvedUserId: null})]]});
+    const before = JSON.stringify([...f.data.accessRequests]);
+    await assert.rejects(f.identity.saveApprovedProfile(f.db.collection('accessRequests').doc('request-a'),
+      'new-resident', profile(), {status: 'aprobado'}), {code: 'failed-precondition'});
+    assert.equal(JSON.stringify([...f.data.accessRequests]), before);
+    assert.equal(f.data.users.size, 0);
+    assert.equal(f.data.memberDniKeys.size, 0);
+    assert.equal(f.data.memberEmailKeys.size, 0);
+    assert.equal(f.authWrites.length, 0);
+  }
+});

@@ -17,10 +17,13 @@ For the most recent approved request linked to the account, the server maintains
 - `currentProfile`: a snapshot of the seven current fields, used after withdrawal.
 - `profileUpdatedAt`: when this snapshot was updated.
 
-The public lookup still returns only the name, masked email, status, rejection
-reason and original application date. It does not return the phone, address,
-profile snapshot, document link or UID. This change does not add identity
-verification to the existing DNI lookup.
+The public lookup returns the status, masked email and original application date.
+The rejection reason remains internal: administrators can record and read it, but
+the public response never includes it, even for rejected requests. The public
+screen instead says: "Comunícate con el administrador encargado para conocer el
+motivo." It does not return the name, full email, phone, address, profile snapshot,
+document link or UID. The lookup continues using only a DNI and does not add
+identity verification. Other statuses and public fields remain unchanged.
 
 A linked approved account with its current DNI takes precedence over a newer
 rejected or pending duplicate. Other cases retain the latest-application behavior.

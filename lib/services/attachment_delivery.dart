@@ -180,6 +180,7 @@ class FirebaseAttachmentDelivery implements AttachmentDelivery {
       _checkAccount(item);
       final file = File(item.localPath);
       await file.length();
+      await FileService.validateLocalFileFormat(item.name, item.localPath);
       try {
         await reference.putFile(
           file,

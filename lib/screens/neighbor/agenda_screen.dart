@@ -231,6 +231,10 @@ class AgendaScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('No se pudo eliminar la actividad: $error'),
+            action: SnackBarAction(
+              label: 'Reintentar',
+              onPressed: () => _deleteEvent(context, eventId, eventTitle),
+            ),
           ),
         );
       }

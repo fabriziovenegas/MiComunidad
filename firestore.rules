@@ -167,7 +167,8 @@ service cloud.firestore {
 
       allow read: if admin();
       allow update: if false;
-      allow delete: if admin();
+      // Rejected applications remain available as administrative history.
+      allow delete: if admin() && resource.data.get('status', '') != 'rechazado';
     }
 
     match /projects/{projectId} {

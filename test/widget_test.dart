@@ -119,6 +119,7 @@ void main() {
     await tester.pump();
     expect(find.text('3'), findsOneWidget);
     expect(find.text('0'), findsOneWidget);
+    expect(find.text('Proyectos\nregistrados'), findsOneWidget);
     expect(find.text('Sin reunión agendada'), findsNothing);
     expect(find.text('Nuestra Misión'), findsOneWidget);
     expect(

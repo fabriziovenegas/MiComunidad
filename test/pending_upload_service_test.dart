@@ -96,6 +96,14 @@ void main() {
   late FirebaseAttachmentDelivery delivery;
   late PendingUploadService service;
 
+  List<int> fixtureHeader(String name) =>
+      switch (FileService.extensionOf(name)) {
+        'jpg' || 'jpeg' => [255, 216, 255, 224],
+        'pdf' => [37, 80, 68, 70, 45],
+        'webp' => [82, 73, 70, 70, 0, 0, 0, 0, 87, 69, 66, 80],
+        _ => [137, 80, 78, 71, 13, 10, 26, 10],
+      };
+
   PendingAttachment item(
           {String collection = 'projects',
           String kind = 'photos',
@@ -132,7 +140,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     temporary = await Directory.systemTemp.createTemp('attachment-dedup-test-');
     source = File('${temporary.path}/fictional.png');
-    await source.writeAsBytes([1, 2, 3]);
+    await source.writeAsBytes(fixtureHeader('photo.png'));
     currentUser = 'owner';
     database = UploadDatabase();
     storage = DeliveryStorage();
@@ -168,6 +176,7 @@ void main() {
     test(
         '${scenario.$1}/${scenario.$2}/${scenario.$3}: a retry produces one object and one record',
         () async {
+      await source.writeAsBytes(fixtureHeader(scenario.$3));
       final attachment =
           item(collection: scenario.$1, kind: scenario.$2, name: scenario.$3);
       await delivery.deliver(attachment);
@@ -277,7 +286,8 @@ void main() {
     expect(await upload(), true);
     expect(storage.writes, isEmpty);
     final saved = PendingAttachment.fromJson((await queue()).single);
-    expect(await File(saved.localPath).readAsBytes(), [1, 2, 3]);
+    expect(
+        await File(saved.localPath).readAsBytes(), fixtureHeader('photo.png'));
     database.readError = null;
     await service.processPending();
     await service.processPending();
@@ -537,7 +547,7 @@ void main() {
     expect(result.state.name, 'queued');
     expect(
         await File((await queue()).single['localPath'] as String).readAsBytes(),
-        [1, 2, 3]);
+        fixtureHeader('photo.png'));
   });
 
   for (final kind in ['photos', 'minutes']) {

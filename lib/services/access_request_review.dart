@@ -1,5 +1,8 @@
 import 'package:cloud_functions/cloud_functions.dart';
 
+bool canReviewAccessRequest({required bool isAdmin, required String status}) =>
+    isAdmin && status == 'pendiente';
+
 String accessRequestReviewErrorMessage(
   Object error, {
   required bool approve,
@@ -14,7 +17,7 @@ String accessRequestReviewErrorMessage(
     }
     if (error.code == 'failed-precondition') {
       return status == 'rechazado' && approve
-          ? 'El servicio todavía no permite aprobar una solicitud rechazada.'
+          ? 'Esta solicitud fue rechazada. Para continuar, debe enviarse una nueva solicitud de ingreso.'
           : 'Esta solicitud ya fue revisada. Actualiza la lista.';
     }
   }

@@ -9,6 +9,7 @@ const {createAccessRequestSubmission} = require("./access_request_submission");
 const {createReportAuthorNameLookup} = require("./report_author_name");
 const {createContentAuthorNameLookup} = require("./content_author_name");
 const {createContentAttachments} = require("./content_attachments");
+const {createEventDeletion} = require("./event_deletion");
 
 initializeApp();
 
@@ -90,6 +91,10 @@ exports.deleteContentAttachment = onCall({region}, (request) => createContentAtt
   firestore: getFirestore(), storage: getStorage, HttpsError, FieldValue,
 }).remove(request));
 
+exports.deleteCommunityEvent = onCall({region}, (request) => createEventDeletion({
+  firestore: getFirestore(), storage: getStorage, HttpsError,
+})(request));
+
 // Legacy code-based recovery is unused and deliberately unavailable. The app
 // continues using Firebase Authentication's password-reset email flow.
 exports.requestPasswordResetCode = onCall({region}, async () => {
@@ -118,9 +123,7 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
   const document = await reference.get();
   if (!document.exists) throw new HttpsError("not-found", "La solicitud no existe.");
   const data = document.data();
-  const canReview = action === "approve" ?
-    ["pendiente", "rechazado"].includes(data.status) :
-    data.status === "pendiente";
+  const canReview = data.status === "pendiente";
   if (!canReview) {
     throw new HttpsError(
         "failed-precondition",
@@ -129,7 +132,13 @@ exports.reviewAccessRequest = onCall({region}, async (request) => {
   }
 
   if (action === "reject") {
-    await reference.update({status: "rechazado", rejectionReason: reason || "La solicitud no cumplió los requisitos.", reviewedBy: request.auth.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()});
+    await getFirestore().runTransaction(async (transaction) => {
+      const current = await transaction.get(reference);
+      if (!current.exists || current.data().status !== "pendiente") {
+        throw new HttpsError("failed-precondition", "La solicitud ya fue revisada.");
+      }
+      transaction.update(reference, {status: "rechazado", rejectionReason: reason || "La solicitud no cumplió los requisitos.", reviewedBy: request.auth.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()});
+    });
     await sendEmail({to: data.email, subject: "Resultado de tu solicitud", html: `<p>Hola ${clean(data.name)},</p><p>Tu solicitud no fue aprobada.</p><p>Motivo: ${reason || "No especificado"}</p>`});
     return {success: true};
   }

@@ -24,7 +24,7 @@ void main() {
     'retirado': 'Acceso retirado',
   }.entries) {
     testWidgets(
-        'consulta ${entry.key} muestra solo estado, fecha y correo oculto',
+        'consulta ${entry.key} oculta siempre el motivo y conserva los demás datos públicos',
         (tester) async {
       await tester.pumpWidget(MaterialApp(
         home: RequestStatusScreen(
@@ -34,7 +34,7 @@ void main() {
             'dni': '00000000',
             'status': entry.key,
             'email': 'fabrizio@example.com',
-            'rejectionReason': 'Motivo privado ficticio',
+            'rejectionReason': 'El documento adjunto no es legible.',
             'createdAt': '2026-10-04T12:00:00Z',
           },
         ),
@@ -45,9 +45,47 @@ void main() {
       expect(find.text('fa*****o@example.com'), findsOneWidget);
       expect(find.textContaining('fabrizio@example.com'), findsNothing);
       expect(find.textContaining('Nombre privado ficticio'), findsNothing);
-      expect(find.textContaining('Motivo privado ficticio'), findsNothing);
+      expect(find.text('Motivo del rechazo'), findsNothing);
+      expect(find.text('El documento adjunto no es legible.'), findsNothing);
+      const explanations = {
+        'pendiente': 'El administrador está verificando tus datos.',
+        'aprobado':
+            'Tu cuenta fue habilitada. Revisa tu correo para establecer la contraseña.',
+        'rechazado':
+            'Comunícate con el administrador encargado para conocer el motivo.',
+        'retirado':
+            'Tu acceso anterior fue retirado. Puedes enviar una nueva solicitud de ingreso.',
+      };
+      expect(find.text(explanations[entry.key]!), findsOneWidget);
+      expect(
+          find.text(
+              'Comunícate con el administrador encargado para conocer el motivo.'),
+          entry.key == 'rechazado' ? findsOneWidget : findsNothing);
       expect(find.text('Solicitante'), findsNothing);
       expect(find.text('DNI registrado'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final reason in [null, '', '   ', 123]) {
+    testWidgets(
+        'rechazo histórico sin motivo válido muestra el mismo mensaje público: $reason',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: RequestStatusScreen(initialRequest: {
+          'status': 'rechazado',
+          'email': 'ap*****t@example.com',
+          'createdAt': '2026-10-04T12:00:00Z',
+          'rejectionReason': reason,
+        }),
+      ));
+      expect(find.text('Rechazado'), findsOneWidget);
+      expect(find.text('Motivo del rechazo'), findsNothing);
+      expect(find.text('No se indicó un motivo de rechazo.'), findsNothing);
+      expect(
+          find.text(
+              'Comunícate con el administrador encargado para conocer el motivo.'),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

@@ -36,11 +36,11 @@ test('consulta sin sesión conserva ceros iniciales y acepta espacios exteriores
 });
 
 for (const status of ['pendiente', 'rechazado', 'aprobado', 'retirado']) {
-  test(`respuesta ${status} contiene exactamente tres campos públicos`, async () => {
+  test(`respuesta ${status} devuelve solo estado, fecha y correo enmascarado, nunca el motivo`, async () => {
     const created = {toDate: () => new Date('2026-10-04T12:00:00Z')};
     const original = {name: 'Private Fictional Applicant', dni: '00000001',
       email: 'fabrizio@example.com', status, phone: '000000001', address: 'Private Fictional Place',
-      reason: 'Private Fictional Reason', rejectionReason: 'Private Fictional Rejection',
+      reason: 'Private Fictional Reason', rejectionReason: 'El documento adjunto no es legible.',
       identityDocumentPath: 'private/document', identityDocumentUrl: 'https://example.invalid/private',
       createdAt: created, approvedUserId: 'member-a'};
     const f = fixture({requests: [['request-a', original]],
@@ -48,7 +48,8 @@ for (const status of ['pendiente', 'rechazado', 'aprobado', 'retirado']) {
         nombre: 'Current Private Name', dni: '00000001', email: 'updated@example.com'}]] : []});
     const lookup = callable(f.identity);
     const result = await lookup({data: {dni: '00000001', includeName: true,
-      fields: ['name', 'rejectionReason', 'identityDocumentUrl'], email: 'attacker@example.com'}});
+      fields: ['name', 'rejectionReason', 'identityDocumentUrl'],
+      includeRejectionReason: true, email: 'attacker@example.com'}});
     assert.deepEqual(Object.keys(result), ['request']);
     assert.deepEqual(Object.keys(result.request).sort(), ['createdAt', 'email', 'status']);
     assert.equal(result.request.status, status);
@@ -57,12 +58,31 @@ for (const status of ['pendiente', 'rechazado', 'aprobado', 'retirado']) {
     assert.deepEqual(f.data.accessRequests.get('request-a'), original);
     const output = JSON.stringify(result);
     for (const privateValue of [original.name, original.email, original.address,
-      original.reason, original.rejectionReason, original.identityDocumentUrl, original.phone]) {
+      original.reason, original.identityDocumentUrl, original.phone, original.rejectionReason]) {
       assert.equal(output.includes(privateValue), false);
     }
     assert.equal(f.authWrites.length, 0);
   });
 }
+
+for (const reason of [undefined, null, '', '   ', 123, {}, ['motivo']]) {
+  test(`rechazo histórico con motivo inválido ${JSON.stringify(reason)} mantiene una respuesta mínima`, async () => {
+    const f = fixture({requests: [['request-a', {dni: '00000001', status: 'rechazado',
+      email: 'applicant@example.com', rejectionReason: reason}]]});
+    const result = await callable(f.identity)({data: {dni: '00000001'}});
+    assert.deepEqual(Object.keys(result.request).sort(), ['createdAt', 'email', 'status']);
+    assert.equal(result.request.status, 'rechazado');
+  });
+}
+
+test('un motivo extenso permanece interno y no se modifica al consultar públicamente', async () => {
+  const f = fixture({requests: [['request-a', {dni: '00000001', status: 'rechazado',
+    email: 'applicant@example.com', rejectionReason: '  ' + 'x'.repeat(1005) + '  '}]]});
+  const result = await callable(f.identity)({data: {dni: '00000001'}});
+  assert.deepEqual(Object.keys(result.request).sort(), ['createdAt', 'email', 'status']);
+  assert.equal(Object.hasOwn(result.request, 'rejectionReason'), false);
+  assert.equal(f.data.accessRequests.get('request-a').rejectionReason.length, 1009);
+});
 
 test('un DNI desconocido no devuelve información ni modifica registros', async () => {
   const f = fixture();

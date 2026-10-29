@@ -214,7 +214,8 @@ test('download URLs come from the verified server-side attachment, not from the 
 for (const contentType of ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']) {
   test(`identity attachment accepts ${contentType} with the same ownership and size checks`, async () => {
     const f = endpoint({metadata: {contentType}});
-    const data = submission({identityDocumentPath: 'access_requests/anonymous-a/identity/document.webp'});
+    const extension = {'image/jpeg': 'jpeg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf'}[contentType];
+    const data = submission({identityDocumentPath: `access_requests/anonymous-a/identity/document.${extension}`});
     delete data.identityDocumentUrl;
     await f.handler(caller(data));
     assert.equal(f.calls.length, 1);

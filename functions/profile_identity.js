@@ -87,11 +87,11 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
     const key = await transaction.get(keyFor(dni));
     if (key.exists && key.data().userId !== uid) {
       const owner = await transaction.get(users.doc(key.data().userId));
-      if (owner.exists) throw new HttpsError("already-exists", "El DNI ya pertenece a otra cuenta.");
+      if (owner.exists) throw new HttpsError("already-exists", "El DNI ya pertenece a otra cuenta.", {reason: "active-account-conflict"});
     }
     const members = await transaction.get(users.where("dni", "==", dni));
     if (members.docs.some((member) => member.id !== uid)) {
-      throw new HttpsError("already-exists", "El DNI ya pertenece a otra cuenta.");
+      throw new HttpsError("already-exists", "El DNI ya pertenece a otra cuenta.", {reason: "active-account-conflict"});
     }
     const [original, current] = await Promise.all([
       transaction.get(requests.where("dni", "==", dni)),
@@ -109,7 +109,7 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
         const member = await memberFor(data, transaction);
         const effectiveDni = member?.data().dni || data.lookupDni || data.dni;
         if (member && effectiveDni === dni && member.id !== uid) {
-          throw new HttpsError("already-exists", "El DNI ya pertenece a otra cuenta.");
+          throw new HttpsError("already-exists", "El DNI ya pertenece a otra cuenta.", {reason: "active-account-conflict"});
         }
       }
     }
@@ -117,17 +117,18 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
 
   async function assertEmailAvailable(transaction, uid, email, ignoredRequestId = null) {
     email = emailValue(email);
-    const conflict = () => new HttpsError("already-exists",
-        "Ya existe una solicitud pendiente o una cuenta registrada con este correo. Consulta tu solicitud o recupera tu contraseña si ya tienes una cuenta.");
+    const conflict = (active = false) => new HttpsError("already-exists",
+        "Ya existe una solicitud pendiente o una cuenta registrada con este correo. Consulta tu solicitud o recupera tu contraseña si ya tienes una cuenta.",
+        active ? {reason: "active-account-conflict"} : undefined);
     // Reading the shared key serializes registrations, approvals and corrections.
     // Check current data rather than letting rejected/withdrawn history reserve it.
     const key = await transaction.get(emailKeyFor(email));
     if (key.exists && key.data().userId !== uid) {
       const owner = await transaction.get(users.doc(key.data().userId));
-      if (owner.exists && emailValue(owner.data().email) === email) throw conflict();
+      if (owner.exists && emailValue(owner.data().email) === email) throw conflict(true);
     }
     const members = await transaction.get(users.where("email", "==", email));
-    if (members.docs.some((member) => member.id !== uid)) throw conflict();
+    if (members.docs.some((member) => member.id !== uid)) throw conflict(true);
     // Also cover older pending requests without keys, including mixed-case email.
     const pending = await transaction.get(requests.where("status", "==", "pendiente"));
     if (pending.docs.some((document) => document.id !== ignoredRequestId &&
@@ -136,7 +137,7 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
     // without a Firestore profile. No Authentication data is changed here.
     try {
       const account = await auth.getUserByEmail(email);
-      if (account.uid !== uid) throw conflict();
+      if (account.uid !== uid) throw conflict(true);
     } catch (error) {
       if (error.code !== "auth/user-not-found") throw error;
     }
@@ -332,7 +333,7 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
     await db.runTransaction(async (transaction) => {
       const application = await transaction.get(reference);
       const member = await transaction.get(users.doc(uid));
-      if (!application.exists || !["pendiente", "rechazado"].includes(application.data().status)) {
+      if (!application.exists || application.data().status !== "pendiente") {
         throw new HttpsError("failed-precondition", "La solicitud ya fue revisada.");
       }
       if (member.exists) throw new HttpsError("already-exists", "La cuenta ya tiene un perfil.");

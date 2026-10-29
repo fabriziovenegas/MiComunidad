@@ -42,15 +42,6 @@ function setup({application = applicant(), members = [], accounts = [], failWrit
     deleteUser: async uid => {calls.delete.push(uid); authAccounts.delete(uid);},
     generatePasswordResetLink: async email => {calls.reset.push(email); return 'https://example.com/fictional-reset';},
   });
-  // Add the direct update used by rejection, keeping the shared transaction fake intact.
-  const collection = f.db.collection;
-  f.db.collection = name => {
-    const q = collection(name), doc = q.doc;
-    q.doc = id => ({...doc(id), update: async values => {
-      f.data[name].set(id, {...f.data[name].get(id), ...values});
-    }});
-    return q;
-  };
   const context = {exports: {}, onCall: (_, callback) => callback, region: 'local', HttpsError,
     communityId: 'fictional-community', communityName: 'MiComunidad',
     getAuth: () => auth, getFirestore: () => f.db, profileIdentity: () => f.identity,
@@ -100,7 +91,7 @@ test('account created externally after a valid submission cannot receive access'
   noApproval(f);
 });
 
-for (const status of ['pendiente', 'rechazado']) {
+for (const status of ['pendiente']) {
   test(`normal ${status} approval creates a new account/profile, links request and preserves existing users`, async () => {
     const member = {nombre: 'Fictional Resident', dni: '00000002', email: 'resident@example.com',
       role: 'vecino', approvalStatus: 'aprobado'};
@@ -207,6 +198,65 @@ test('rejection is still allowed without changing a preexisting Auth account', a
   assert.equal(f.calls.claims.length, 0);
   assert.equal(f.calls.reset.length, 0);
   assert.equal(f.calls.delete.length, 0);
+});
+
+for (const action of ['approve', 'reject']) {
+  test(`a rejected request cannot be reviewed again through ${action}`, async () => {
+    const f = setup({application: applicant({status: 'rechazado', rejectionReason: 'Documento ilegible.'})});
+    const before = f.snapshot();
+    await assert.rejects(f.review({action, reason: 'Another reason'}), {code: 'failed-precondition'});
+    assert.equal(f.snapshot(), before);
+    assert.equal(f.calls.create.length, 0);
+    noApproval(f);
+  });
+}
+
+test('rejection committed before approval finishes blocks access and removes only the newly created account', async () => {
+  const f = setup(), create = f.auth.createUser;
+  f.auth.createUser = async values => {
+    const account = await create(values);
+    await f.review({action: 'reject', reason: 'Documento ilegible.'});
+    return account;
+  };
+  await assert.rejects(f.review(), {code: 'failed-precondition'});
+  assert.equal(f.data.accessRequests.get('pending').status, 'rechazado');
+  assert.equal(f.data.accessRequests.get('pending').rejectionReason, 'Documento ilegible.');
+  assert.equal(f.authAccounts.size, 0);
+  assert.equal(f.data.users.size, 1); // Existing administrator only.
+  assert.deepEqual(f.calls.delete, ['created-1']);
+  assert.equal(f.calls.claims.length, 0);
+  assert.equal(f.calls.reset.length, 0);
+  assert.equal(f.calls.mail.length, 1); // Rejection notice only.
+});
+
+test('rejection that reaches the transaction after approval cannot overwrite the approved state', async () => {
+  const f = setup(), transact = f.db.runTransaction;
+  let injectApproval = true;
+  f.db.runTransaction = async callback => {
+    if (injectApproval) {
+      injectApproval = false;
+      await f.review();
+    }
+    return transact(callback);
+  };
+  await assert.rejects(f.review({action: 'reject', reason: 'Late rejection'}), {code: 'failed-precondition'});
+  const request = f.data.accessRequests.get('pending');
+  assert.equal(request.status, 'aprobado');
+  assert.equal(request.rejectionReason, undefined);
+  assert.equal(f.data.users.get(request.approvedUserId).approvalStatus, 'aprobado');
+  assert.equal(f.authAccounts.size, 1);
+  assert.equal(f.calls.create.length, 1);
+  assert.equal(f.calls.delete.length, 0);
+  assert.equal(f.calls.claims.length, 1);
+  assert.equal(f.calls.mail.length, 1);
+});
+
+test('failed rejection transaction preserves the pending request and does not send an email', async () => {
+  const f = setup({failWrite: true}), before = f.snapshot();
+  await assert.rejects(f.review({action: 'reject', reason: 'Fictional reason'}), /Simulated Firestore failure/);
+  assert.equal(f.snapshot(), before);
+  assert.equal(f.calls.create.length, 0);
+  noApproval(f);
 });
 
 test('unauthenticated, unapproved and normal users cannot approve', async () => {

@@ -191,7 +191,7 @@ void main() {
         refreshAuth: () async {});
     temporary = await Directory.systemTemp.createTemp('report-delivery-test-');
     photo = File('${temporary.path}/photo.png');
-    await photo.writeAsBytes([1, 2, 3]);
+    await photo.writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
   });
   tearDown(() async {
     final path = await temporary.resolveSymbolicLinks();
@@ -294,6 +294,7 @@ void main() {
   test('WEBP is uploaded as image/webp and keeps one stable destination',
       () async {
     seed();
+    await photo.writeAsBytes([82, 73, 70, 70, 0, 0, 0, 0, 87, 69, 66, 80]);
     report = PendingReport(
         id: 'stable',
         userId: 'owner',
@@ -304,6 +305,13 @@ void main() {
     expect(storage.writes, [report.photoStoragePath]);
     expect(storage.contentTypes[report.photoStoragePath], 'image/webp');
     expect(db.rows['reports/stable/photos/stable']!['contentType'], 'image');
+  });
+  test('a renamed PDF never reaches photo upload or registration', () async {
+    seed();
+    await photo.writeAsBytes([37, 80, 68, 70, 45]);
+    await expectLater(sender.ensurePhoto(report, photo), throwsException);
+    expect(storage.writes, isEmpty);
+    expect(db.rows['reports/stable/photos/stable'], isNull);
   });
   test('lost Storage acknowledgement does not upload a second file', () async {
     seed();

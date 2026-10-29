@@ -6,6 +6,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:micomunidad/services/access_request_review.dart';
 
 void main() {
+  test('solo los administradores pueden revisar solicitudes pendientes', () {
+    expect(canReviewAccessRequest(isAdmin: true, status: 'pendiente'), isTrue);
+    for (final status in [
+      'rechazado',
+      'aprobado',
+      'retirado',
+      '',
+      'desconocido'
+    ]) {
+      expect(canReviewAccessRequest(isAdmin: true, status: status), isFalse);
+    }
+    for (final status in ['pendiente', 'rechazado', 'aprobado', 'retirado']) {
+      expect(canReviewAccessRequest(isAdmin: false, status: status), isFalse);
+    }
+  });
+
   const existingAccountMessage =
       'Ya existe una cuenta de Firebase Authentication con este correo. La solicitud requiere revisión y no se ha aprobado.';
 
@@ -63,7 +79,7 @@ void main() {
     expect(
         accessRequestReviewErrorMessage(error,
             approve: true, status: 'rechazado'),
-        'El servicio todavía no permite aprobar una solicitud rechazada.');
+        'Esta solicitud fue rechazada. Para continuar, debe enviarse una nueva solicitud de ingreso.');
     for (final approve in [true, false]) {
       expect(
           accessRequestReviewErrorMessage(error,

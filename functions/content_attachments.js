@@ -6,6 +6,31 @@ function validStoredFileHeader(bytes, type) {
   return type === "application/pdf" && bytes.toString("ascii", 0, 5) === "%PDF-";
 }
 
+function storedFileTypeForName(name) {
+  if (typeof name !== "string" || !name.includes(".")) return undefined;
+  return {jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", pdf: "application/pdf"}[
+    name.split(".").at(-1).toLowerCase()];
+}
+
+function validStoredFileFormat(bytes, type, name) {
+  return storedFileTypeForName(name) === type && validStoredFileHeader(bytes, type);
+}
+
+function storedObjectPath(saved, bucketName) {
+  if (typeof saved.storagePath === "string" && saved.storagePath) return saved.storagePath;
+  try {
+    const url = new URL(saved.url);
+    if (url.protocol === "gs:" && url.hostname === bucketName) return decodeURIComponent(url.pathname.slice(1));
+    const parts = url.pathname.split("/");
+    if (url.origin !== "https://firebasestorage.googleapis.com" || parts.length !== 6 ||
+        parts[1] !== "v0" || parts[2] !== "b" || parts[4] !== "o" ||
+        decodeURIComponent(parts[3]) !== bucketName) return null;
+    return decodeURIComponent(parts[5]);
+  } catch (_) {
+    return null;
+  }
+}
+
 // Only the server may publish attachment records. Client URLs are never trusted.
 function createContentAttachments({firestore: db, storage, HttpsError, FieldValue}) {
   const id = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -27,22 +52,6 @@ function createContentAttachments({firestore: db, storage, HttpsError, FieldValu
     return typeof path === "string" && path.startsWith(prefix) && path.length <= 800 &&
       /^[A-Za-z0-9._-]{1,400}$/.test(path.slice(prefix.length)) &&
       ![".", ".."].includes(path.slice(prefix.length));
-  }
-  function storedObjectPath(saved, bucketName) {
-    if (typeof saved.storagePath === "string" && saved.storagePath) return saved.storagePath;
-    // Older legitimate records may have only a Firebase download URL. Resolve
-    // it only for this bucket; external hosts are refused.
-    try {
-      const url = new URL(saved.url);
-      if (url.protocol === "gs:" && url.hostname === bucketName) return decodeURIComponent(url.pathname.slice(1));
-      const parts = url.pathname.split("/");
-      if (url.origin !== "https://firebasestorage.googleapis.com" || parts.length !== 6 ||
-          parts[1] !== "v0" || parts[2] !== "b" || parts[4] !== "o" ||
-          decodeURIComponent(parts[3]) !== bucketName) return null;
-      return decodeURIComponent(parts[5]);
-    } catch (_) {
-      return null;
-    }
   }
   function approved(profile) {
     return profile?.approvalStatus === "aprobado" && ["vecino", "admin"].includes(profile.role) &&
@@ -85,8 +94,7 @@ function createContentAttachments({firestore: db, storage, HttpsError, FieldValu
     } catch (_) {
       throw new HttpsError("failed-precondition", "El archivo aún no está disponible. Reintenta el envío.");
     }
-    const types = {jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", pdf: "application/pdf"};
-    const type = types[data.name.split(".").at(-1).toLowerCase()];
+    const type = storedFileTypeForName(data.name);
     const size = Number(metadata.size);
     const upload = metadata.metadata || {};
     const uploadId = upload.attachmentUploadId || upload.reportUploadId;
@@ -97,7 +105,9 @@ function createContentAttachments({firestore: db, storage, HttpsError, FieldValu
       throw new HttpsError("invalid-argument", "El tipo, tamaño o propietario del archivo no es válido.");
     }
     const [header] = await file.download({start: 0, end: 15});
-    if (!validStoredFileHeader(header, type)) throw new HttpsError("invalid-argument", "El contenido del archivo no coincide con su formato.");
+    if (!validStoredFileFormat(header, type, data.name) || storedFileTypeForName(data.storagePath) !== type) {
+      throw new HttpsError("invalid-argument", "La extensión del archivo no coincide con su formato real.");
+    }
     // New metadata contains no bearer download token. The client must use its
     // authenticated Storage SDK to read the object. Revoke its upload token.
     await file.setMetadata({metadata: {...metadata.metadata, firebaseStorageDownloadTokens: null}});
@@ -166,4 +176,4 @@ function createContentAttachments({firestore: db, storage, HttpsError, FieldValu
   return {register, remove};
 }
 
-module.exports = {createContentAttachments, validStoredFileHeader};
+module.exports = {createContentAttachments, validStoredFileHeader, validStoredFileFormat, storedFileTypeForName, storedObjectPath};

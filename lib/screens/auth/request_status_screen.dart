@@ -204,13 +204,13 @@ class _StatusCard extends StatelessWidget {
               status == 'aprobado'
                   ? 'Tu cuenta fue habilitada. Revisa tu correo para establecer la contraseña.'
                   : status == 'rechazado'
-                      ? 'La solicitud no fue aprobada.'
+                      ? 'Comunícate con el administrador encargado para conocer el motivo.'
                       : status == 'retirado'
                           ? 'Tu acceso anterior fue retirado. Puedes enviar una nueva solicitud de ingreso.'
                           : 'El administrador está verificando tus datos.',
               textAlign: TextAlign.center,
             ),
-            const Divider(height: 32),
+            Divider(height: status == 'rechazado' ? 16 : 32),
             ListTile(title: const Text('Fecha de envío'), trailing: Text(date)),
             ListTile(
                 title: const Text('Correo electrónico'),

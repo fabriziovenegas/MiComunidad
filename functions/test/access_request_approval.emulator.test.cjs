@@ -27,9 +27,15 @@ test('approval never grants access to a preexisting Auth account', {skip: !host 
     return auth.generatePasswordResetLink(email);
   };
   const identity = createProfileIdentity({firestore: db, auth, HttpsError, FieldValue});
+  // The callback is evaluated in a VM realm; the official SDK requires a
+  // native Promise from its own realm for transaction callbacks.
+  const firestoreFacade = {
+    collection: (...args) => db.collection(...args),
+    runTransaction: callback => db.runTransaction(transaction => Promise.resolve(callback(transaction))),
+  };
   const context = {exports: {}, onCall: (_, callback) => callback, region: 'local', HttpsError,
     communityId: 'fictional-community', communityName: 'MiComunidad', FieldValue,
-    getFirestore: () => db, getAuth: () => authProxy, profileIdentity: () => identity,
+    getFirestore: () => firestoreFacade, getAuth: () => authProxy, profileIdentity: () => identity,
     sendEmail: async () => {calls.mail++; return true;}};
   vm.runInNewContext(source.slice(source.indexOf('async function requireAdmin'), source.indexOf('async function sendEmail')), context);
   vm.runInNewContext(source.slice(source.indexOf('exports.reviewAccessRequest ='), source.indexOf('exports.removeNeighbor =')), context);
@@ -107,10 +113,18 @@ test('approval never grants access to a preexisting Auth account', {skip: !host 
   });
 
   for (const [status, dni] of [['pendiente', '00000002'], ['rechazado', '00000003']]) {
-    await t.test(`normal ${status} approval creates a new approved account`, async () => {
+    await t.test(`only pending requests can be approved: ${status}`, async () => {
       const id = `normal-${status}`, email = `${id}@example.com`;
       await submit(id, dni, email);
-      if (status === 'rechazado') await db.doc(`accessRequests/${id}`).update({status});
+      if (status === 'rechazado') {
+        await db.doc(`accessRequests/${id}`).update({status, rejectionReason: 'Documento ilegible.'});
+        const before = (await db.doc(`accessRequests/${id}`).get()).data();
+        await assert.rejects(review(id), {code: 'failed-precondition'});
+        await assert.rejects(auth.getUserByEmail(email), {code: 'auth/user-not-found'});
+        assert.deepEqual((await db.doc(`accessRequests/${id}`).get()).data(), before);
+        assert.equal((await db.collection('users').where('email', '==', email).get()).empty, true);
+        return;
+      }
       const result = await review(id);
       assert.equal(result.success, true);
       const request = (await db.doc(`accessRequests/${id}`).get()).data();
@@ -140,8 +154,8 @@ test('approval never grants access to a preexisting Auth account', {skip: !host 
     assert.equal((await db.doc(`users/${external.localId}`).get()).exists, false);
     assert.equal((await db.doc('accessRequests/race').get()).data().status, 'pendiente');
     assert.deepEqual((await auth.getUser(external.localId)).customClaims || {}, {});
-    assert.equal(calls.reset, 2);
-    assert.equal(calls.mail, 2);
+    assert.equal(calls.reset, 1);
+    assert.equal(calls.mail, 1);
   });
 
   await t.test('two simultaneous approvals create one account and one approved profile', async () => {
@@ -160,5 +174,27 @@ test('approval never grants access to a preexisting Auth account', {skip: !host 
     assert.deepEqual((await db.doc('users/existing-resident').get()).data(), residentProfile);
     assert.deepEqual((await auth.getUser('existing-resident')).toJSON(), existingResident);
     assert.deepEqual((await auth.getUser('admin')).customClaims, {approved: true, role: 'admin'});
+  });
+
+  await t.test('rejection during approval prevents an approved profile and removes the new Auth account', async () => {
+    await submit('rejected-during-approval', '00000006', 'rejected-during-approval@example.com');
+    authProxy.createUser = async values => {
+      const account = await auth.createUser(values);
+      await context.exports.reviewAccessRequest({auth: {uid: 'admin'}, data: {
+        requestId: 'rejected-during-approval', action: 'reject', reason: 'Documento ilegible.',
+      }});
+      return account;
+    };
+    try {
+      await assert.rejects(review('rejected-during-approval'), {code: 'failed-precondition'});
+    } finally {
+      delete authProxy.createUser;
+    }
+    const request = (await db.doc('accessRequests/rejected-during-approval').get()).data();
+    assert.equal(request.status, 'rechazado');
+    assert.equal(request.rejectionReason, 'Documento ilegible.');
+    assert.equal(request.approvedUserId, undefined);
+    assert.equal((await db.collection('users').where('email', '==', 'rejected-during-approval@example.com').get()).empty, true);
+    await assert.rejects(auth.getUserByEmail('rejected-during-approval@example.com'), {code: 'auth/user-not-found'});
   });
 });

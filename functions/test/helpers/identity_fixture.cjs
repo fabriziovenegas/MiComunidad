@@ -1,7 +1,7 @@
 const {createProfileIdentity} = require('../../profile_identity');
 
 class HttpsError extends Error {
-  constructor(code, message) { super(message); this.code = code; }
+  constructor(code, message, details) { super(message); this.code = code; this.details = details; }
 }
 
 function fixture({members = [], requests = [], keys = [], authError = null, failWrite = false} = {}) {

@@ -313,6 +313,58 @@ test('closed backend permissions, schemas and attachment ownership via direct AP
     assert.equal((await db.doc(`accessRequests/${data.requestId}`).get()).data().status, 'pendiente');
     assert.deepEqual((await auth.getUser(external.localId)).toJSON(), before);
   });
+  await t.test('identity extension validation and active-account feedback hold outside Flutter', async () => {
+    const documentPath = `access_requests/${anon.localId}/identity/renamed.jpg`;
+    allowed(await upload(documentPath, 'anonymous', {mime: 'application/pdf', bytes: pdf, metadata: {uploadedBy: anon.localId}}));
+    const input = {requestId: 'format-test', name: 'Fictional Applicant', dni: '00000999', phone: '000000001',
+      email: 'format-test@example.com', address: 'Fictional address', timeLivingHere: '1 a 5 años', reason: 'Fictional test',
+      identityDocumentPath: documentPath};
+    const invalid = await callable('submitAccessRequest', input, 'anonymous');
+    assert.equal(invalid.body.error.status, 'INVALID_ARGUMENT');
+    assert.equal((await db.doc('accessRequests/format-test').get()).exists, false);
+    const photoPath = `access_requests/${anon.localId}/identity/acta.jpeg`;
+    allowed(await upload(photoPath, 'anonymous', {mime: 'image/jpeg', bytes: Buffer.from([255, 216, 255, 224]), metadata: {uploadedBy: anon.localId}}));
+    allowed(await callable('submitAccessRequest', {...input, identityDocumentPath: photoPath}, 'anonymous'));
+    assert.ok((await db.doc('accessRequests/format-test').get()).data().identityDocumentUrl.startsWith('gs://'));
+    const {activeAccountConflictMessage} = require('../access_request_submission');
+    for (const conflict of [{dni: '00000006', email: 'different@example.com'}, {dni: '00000998', email: 'neighbor@example.com'}]) {
+      const result = await callable('submitAccessRequest', {...input, ...conflict, requestId: 'active-conflict', identityDocumentPath: photoPath}, 'anonymous');
+      assert.equal(result.body.error.status, 'ALREADY_EXISTS');
+      assert.equal(result.body.error.message, activeAccountConflictMessage);
+      assert.deepEqual(result.body.error.details, {reason: 'active-account-conflict'});
+    }
+  });
+  await t.test('definitive activity deletion clears real emulator files and records with unchanged rules', async () => {
+    const eventId = 'delete-target';
+    await db.doc(`events/${eventId}`).set({...eventData, createdAt: new Date(), updatedAt: new Date()});
+    const photoPath = `events/${eventId}/photos/photo_photo.png`;
+    const pdfPath = `events/${eventId}/minutes/minutes_acta.pdf`;
+    const imageMinutesPath = `events/${eventId}/minutes/image_acta.png`;
+    for (const [path, id, kind, bytes, mime] of [[photoPath, 'photo', 'photos', png, 'image/png'],
+      [pdfPath, 'minutes', 'minutes', pdf, 'application/pdf'], [imageMinutesPath, 'image', 'minutes', png, 'image/png']]) {
+      allowed(await upload(path, 'neighbor', {mime, bytes}));
+      allowed(await callable('registerContentAttachment', {collection: 'events', documentId: eventId, kind,
+        attachmentId: id, storagePath: path, name: path.split('_').at(-1)}, 'neighbor'));
+    }
+    await db.doc(`events/${eventId}/comments/comment`).set({text: 'Fictional comment'});
+    await bucket.file(`events/${eventId}/other/unreferenced.txt`).save('Fictional attachment');
+    await bucket.file('events/delete-target-other/photos/keep.png').save(png, {contentType: 'image/png'});
+    denied(await callable('deleteCommunityEvent', {eventId}, 'neighbor'));
+    assert.equal((await db.doc(`events/${eventId}`).get()).exists, true);
+    await db.doc(`events/${eventId}/photos/poison`).set({storagePath: 'reports/r/photos/other.png'});
+    const poison = await callable('deleteCommunityEvent', {eventId}, 'admin');
+    assert.equal(poison.body.error.status, 'FAILED_PRECONDITION');
+    assert.equal((await bucket.file(photoPath).exists())[0], true);
+    await db.doc(`events/${eventId}/photos/poison`).delete();
+    allowed(await callable('deleteCommunityEvent', {eventId}, 'admin'));
+    assert.equal((await db.doc(`events/${eventId}`).get()).exists, false);
+    assert.equal((await bucket.getFiles({prefix: `events/${eventId}/` }))[0].length, 0);
+    for (const kind of ['photos', 'minutes', 'comments']) assert.equal((await db.collection(`events/${eventId}/${kind}`).get()).size, 0);
+    assert.equal((await bucket.file('events/delete-target-other/photos/keep.png').exists())[0], true);
+    denied(await upload(`events/${eventId}/photos/new_photo.png`, 'neighbor'));
+    denied(await write(`events/${eventId}/comments/new`, {text: 'Fictional late comment', authorId: 'neighbor', authorName: 'Fictional Updated Neighbor'}, 'neighbor', {times: ['createdAt']}));
+    allowed(await callable('deleteCommunityEvent', {eventId}, 'admin'));
+  });
   await t.test('unused legacy password-code handlers cannot perform public account operations', async () => {
     for (const name of ['requestPasswordResetCode', 'confirmPasswordResetCode']) {
       const response = await callable(name, {email: 'neighbor@example.com', code: '123456', newPassword: 'fictional-other-password'}, null);

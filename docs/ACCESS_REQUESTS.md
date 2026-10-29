@@ -8,6 +8,13 @@ saves the pending request in a Firestore transaction.
 
 ## One active request per DNI
 
+Only pending requests can be approved or rejected. A rejected request is a final
+decision: administrators can read its reason or delete the record, but cannot
+approve it later. The applicant may submit a new request, subject to the same
+active-account and duplicate checks. Approval and rejection recheck the current
+status inside Firestore transactions so competing decisions cannot overwrite
+each other. Already-approved accounts are not changed by this policy.
+
 The transaction reads and writes the server-only `memberDniKeys` document for the
 DNI. Concurrent submissions cannot both claim it. The same document is used by
 approvals and profile corrections, so these operations also participate in the

@@ -1,12 +1,14 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
 import '../../services/private_file_service.dart';
 import '../../models/access_request.dart';
 import '../../models/user_model.dart';
 import '../../services/community_service.dart';
 import '../../services/access_request_review.dart';
+import '../../widgets/access_request_details.dart';
+import '../../widgets/access_request_preview_card.dart';
+import '../../widgets/member_details_sheet.dart';
 
 class MembersScreen extends StatefulWidget {
   const MembersScreen({super.key, required this.user});
@@ -21,12 +23,11 @@ class _MembersScreenState extends State<MembersScreen>
   String? _busyId;
   final Map<String, AccessRequest> _currentRequests = {};
 
-  bool _canApprove(AccessRequest request) =>
-      widget.user.isAdmin &&
-      (request.status == 'pendiente' || request.status == 'rechazado');
+  bool _canApprove(AccessRequest request) => canReviewAccessRequest(
+      isAdmin: widget.user.isAdmin, status: request.status);
 
-  bool _canReject(AccessRequest request) =>
-      widget.user.isAdmin && request.status == 'pendiente';
+  bool _canReject(AccessRequest request) => canReviewAccessRequest(
+      isAdmin: widget.user.isAdmin, status: request.status);
   @override
   void dispose() {
     _tabs.dispose();
@@ -50,7 +51,11 @@ class _MembersScreenState extends State<MembersScreen>
                       onChanged: (value) => inputReason = value,
                       maxLines: 3,
                       decoration: const InputDecoration(
-                          labelText: 'Motivo del rechazo')),
+                          labelText: 'Motivo del rechazo',
+                          labelStyle: TextStyle(fontWeight: FontWeight.bold),
+                          helperText:
+                              'El motivo quedará registrado internamente.',
+                          helperMaxLines: 3)),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.pop(context),
@@ -89,60 +94,6 @@ class _MembersScreenState extends State<MembersScreen>
       }
     } finally {
       if (mounted) setState(() => _busyId = null);
-    }
-  }
-
-  Future<void> _deleteRequest(AccessRequest request) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Eliminar solicitud'),
-        content: Text(
-          '¿Deseas eliminar la solicitud de ${request.name}? Esta acción no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _busyId = request.id);
-
-    try {
-      debugPrint('🟡 INICIO: eliminando solicitud ${request.id}');
-
-      await CommunityService.instance.deleteAccessRequest(request.id);
-
-      debugPrint('🟢 FIN: solicitud eliminada correctamente');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Solicitud eliminada.'),
-          ),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('No se pudo eliminar la solicitud: $error'),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _busyId = null);
-      }
     }
   }
 
@@ -260,30 +211,8 @@ class _MembersScreenState extends State<MembersScreen>
                             controller: controller,
                             padding: const EdgeInsets.all(20),
                             children: [
-                              Text(request.name,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineSmall),
-                              const SizedBox(height: 12),
-                              _detail(
-                                  'Estado',
-                                  request.status == 'pendiente'
-                                      ? 'Pendiente'
-                                      : request.status == 'rechazado'
-                                          ? 'Rechazada'
-                                          : request.status == 'retirado'
-                                              ? 'Acceso retirado'
-                                              : request.status == 'aprobado'
-                                                  ? 'Aprobada'
-                                                  : request.status),
-                              _detail('DNI', request.dni),
-                              _detail('Teléfono', request.phone),
-                              _detail('Correo', request.email),
-                              _detail('Dirección', request.address),
-                              _detail('Tiempo viviendo aquí',
-                                  request.timeLivingHere),
-                              _detail('Motivo', request.reason),
-                              const SizedBox(height: 12),
+                              AccessRequestDetails(request: request),
+                              const SizedBox(height: 20),
                               OutlinedButton.icon(
                                   onPressed: () async {
                                     try {
@@ -341,11 +270,6 @@ class _MembersScreenState extends State<MembersScreen>
             ));
   }
 
-  Widget _detail(String label, String value) => ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(label),
-      subtitle: Text(value));
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -374,59 +298,26 @@ class _MembersScreenState extends State<MembersScreen>
                   return const _Empty(
                       icon: Icons.person_search, text: 'No hay solicitudes.');
                 }
-                return ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: requests.length,
-                    itemBuilder: (context, index) {
-                      final request = requests[index];
-                      final pending = request.status == 'pendiente';
-                      final rejected = request.status == 'rechazado';
-                      final prettyStatus = pending
-                          ? 'Pendiente'
-                          : rejected
-                              ? 'Rechazada'
-                              : request.status == 'retirado'
-                                  ? 'Acceso retirado'
-                                  : request.status == 'aprobado'
-                                      ? 'Aprobada'
-                                      : request.status;
-                      return Card(
-                        child: InkWell(
-                          onTap: () => _details(request),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            child: Row(
-                              children: [
-                                CircleAvatar(
-                                  child: Text(
-                                    request.name.isEmpty
-                                        ? '?'
-                                        : request.name[0],
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        request.name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '${DateFormat('dd/MM/yyyy').format(request.createdAt)} · $prettyStatus',
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (pending)
-                                  Row(
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+                      child: Text('Solicitudes de acceso',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontSize: 20, fontWeight: FontWeight.w700)),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        itemCount: requests.length,
+                        itemBuilder: (context, index) {
+                          final request = requests[index];
+                          return AccessRequestPreviewCard(
+                            request: request,
+                            onOpen: () => _details(request),
+                            reviewActions: _canApprove(request) || _canReject(request)
+                                ? Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       IconButton(
@@ -445,35 +336,13 @@ class _MembersScreenState extends State<MembersScreen>
                                       ),
                                     ],
                                   )
-                                else if (rejected)
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        tooltip: 'Aprobar',
-                                        onPressed: _busyId == null &&
-                                                _canApprove(request)
-                                            ? () => _review(request, true)
-                                            : null,
-                                        icon: const Icon(Icons.check_circle),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Eliminar solicitud',
-                                        onPressed: _busyId == null
-                                            ? () => _deleteRequest(request)
-                                            : null,
-                                        icon: const Icon(Icons.delete_outline),
-                                      ),
-                                    ],
-                                  )
-                                else
-                                  const Icon(Icons.chevron_right),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    });
+                                : null,
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
               },
             ),
             StreamBuilder<List<AppUser>>(
@@ -495,6 +364,10 @@ class _MembersScreenState extends State<MembersScreen>
                       final user = users[index];
                       return Card(
                           child: ListTile(
+                              onTap: () => showMemberDetailsSheet(context,
+                                  viewer: widget.user,
+                                  memberId: user.userId,
+                                  members: CommunityService.instance.members()),
                               leading: CircleAvatar(child: Text(user.initials)),
                               title: Text(user.nombre),
                               subtitle: Text(

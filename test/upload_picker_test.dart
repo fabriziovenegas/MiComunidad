@@ -34,7 +34,15 @@ class DemoFilePicker extends FilePicker {
   }
 
   void select(int size, {String name = 'demo.jpg'}) {
-    result = FilePickerResult([PlatformFile(name: name, size: size)]);
+    final header = switch (FileService.extensionOf(name)) {
+      'png' => [137, 80, 78, 71, 13, 10, 26, 10],
+      'webp' => [82, 73, 70, 70, 0, 0, 0, 0, 87, 69, 66, 80],
+      'pdf' => [37, 80, 68, 70, 45],
+      _ => [0xff, 0xd8, 0xff, 0xd9],
+    };
+    result = FilePickerResult([
+      PlatformFile(name: name, size: size, bytes: Uint8List.fromList(header))
+    ]);
   }
 }
 
@@ -55,7 +63,7 @@ void main() {
       test(
           '$extension is converted to JPEG in the ${document ? 'document' : 'photo'} picker',
           () async {
-        final jpeg = Uint8List.fromList([0xff, 0xd8, 1, 2, 0xff, 0xd9]);
+        final jpeg = Uint8List.fromList([0xff, 0xd8, 0xff, 1, 2, 0xff, 0xd9]);
         MethodCall? received;
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(HeifImageConverter.channel, (call) async {
@@ -297,6 +305,32 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.byTooltip('Cerrar aviso'));
     await tester.pump();
+  });
+
+  testWidgets('a PDF renamed as JPG displays the existing top error notice',
+      (tester) async {
+    picker.result = FilePickerResult([
+      PlatformFile(
+          name: 'renamed.jpg',
+          size: 5,
+          bytes: Uint8List.fromList([37, 80, 68, 70, 45]))
+    ]);
+    SelectedUpload? accepted;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Builder(
+      builder: (context) => TextButton(
+        onPressed: () async => accepted =
+            await pickUploadWithFeedback(context, FileService.pickImage),
+        child: const Text('Select'),
+      ),
+    ))));
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+    expect(
+        find.text('La extensión del archivo no coincide con su formato real.'),
+        findsOneWidget);
+    expect(accepted, isNull);
   });
 
   for (final fail in [true, false]) {

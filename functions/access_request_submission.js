@@ -1,5 +1,6 @@
 // Authentication and attachment validation for server-only access requests.
-const {validStoredFileHeader} = require("./content_attachments");
+const {validStoredFileFormat} = require("./content_attachments");
+const activeAccountConflictMessage = "No pudimos procesar tu solicitud porque algunos de los datos ingresados ya están asociados a una cuenta activa. Revisa la información o comunícate con un administrador.";
 function createAccessRequestSubmission({identity, storage, HttpsError}) {
   return async (request) => {
     const uid = request.auth?.uid;
@@ -32,8 +33,8 @@ function createAccessRequestSubmission({identity, storage, HttpsError}) {
         throw new HttpsError("invalid-argument", "Adjunta un JPG, JPEG, PNG, WEBP o PDF válido de hasta 5 MB.");
       }
       const [header] = await file.download({start: 0, end: 15});
-      if (!validStoredFileHeader(header, metadata.contentType)) {
-        throw new HttpsError("invalid-argument", "El contenido del documento no coincide con su formato.");
+      if (!validStoredFileFormat(header, metadata.contentType, filename)) {
+        throw new HttpsError("invalid-argument", "La extensión del archivo no coincide con su formato real.");
       }
       // The identity document is readable through authenticated Storage only.
       // Do not publish a shareable bearer token in an administrative record.
@@ -43,9 +44,16 @@ function createAccessRequestSubmission({identity, storage, HttpsError}) {
       if (error instanceof HttpsError) throw error;
       throw new HttpsError("failed-precondition", "No se pudo validar el documento adjunto. Vuelve a intentarlo.");
     }
-    return identity.submitAccessRequest(uid, {...data,
-      identityDocumentPath: documentPath, identityDocumentUrl: url});
+    try {
+      return await identity.submitAccessRequest(uid, {...data,
+        identityDocumentPath: documentPath, identityDocumentUrl: url});
+    } catch (error) {
+      if (error.code === "already-exists" && error.details?.reason === "active-account-conflict") {
+        throw new HttpsError("already-exists", activeAccountConflictMessage, {reason: "active-account-conflict"});
+      }
+      throw error;
+    }
   };
 }
 
-module.exports = {createAccessRequestSubmission};
+module.exports = {createAccessRequestSubmission, activeAccountConflictMessage};

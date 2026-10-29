@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase;
 import '../models/user_model.dart';
 import 'file_service.dart';
+import 'access_request_feedback.dart';
 
 class AuthService {
   AuthService._();
@@ -111,6 +112,9 @@ class AuthService {
       }
     }
     final existingStatus = existingRequest?['status'];
+    final conflict =
+        activeAccountConflictFeedback(status: existingStatus as String?);
+    if (conflict != null) throw AuthFlowException(conflict);
     if (existingStatus == 'pendiente' || existingStatus == 'aprobado') {
       throw const AuthFlowException(
         'Ya existe una solicitud activa para este DNI. Consulta su estado.',
@@ -173,6 +177,9 @@ class AuthService {
   }
 
   AuthFlowException _functionsError(FirebaseFunctionsException error) {
+    final conflict =
+        activeAccountConflictFeedback(code: error.code, details: error.details);
+    if (conflict != null) return AuthFlowException(conflict);
     return switch (error.code) {
       'invalid-argument' => AuthFlowException(error.message ??
           'Revisa los datos ingresados e inténtalo nuevamente.'),

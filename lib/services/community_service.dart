@@ -599,7 +599,9 @@ class CommunityService {
           }).save(eventId, data);
 
   Future<void> deleteEvent(String eventId) async {
-    await _db.collection('events').doc(eventId).delete();
+    await _functions
+        .httpsCallable('deleteCommunityEvent')
+        .call({'eventId': eventId});
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> comments(
@@ -745,10 +747,6 @@ class CommunityService {
       'action': approve ? 'approve' : 'reject',
       'reason': reason?.trim(),
     });
-  }
-
-  Future<void> deleteAccessRequest(String requestId) async {
-    await _db.collection('accessRequests').doc(requestId).delete();
   }
 
   Future<void> removeNeighbor(String userId) async {
