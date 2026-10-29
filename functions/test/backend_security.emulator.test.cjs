@@ -313,6 +313,39 @@ test('closed backend permissions, schemas and attachment ownership via direct AP
     assert.equal((await db.doc(`accessRequests/${data.requestId}`).get()).data().status, 'pendiente');
     assert.deepEqual((await auth.getUser(external.localId)).toJSON(), before);
   });
+  await t.test('one to three identity documents remain associated, validated and restricted through direct APIs', async () => {
+    for (const count of [1, 2, 3]) {
+      const paths = [];
+      for (let i = 0; i < count; i++) {
+        const image = i === 1;
+        const documentPath = `access_requests/${anon.localId}/identity/multi-${count}-${i}.${image ? 'png' : 'pdf'}`;
+        allowed(await upload(documentPath, 'anonymous', {mime: image ? 'image/png' : 'application/pdf',
+          bytes: image ? png : pdf, metadata: {uploadedBy: anon.localId}}));
+        paths.push(documentPath);
+      }
+      const data = {requestId: `multi-${count}`, name: 'Fictional Multiple Documents', dni: `0000100${count}`,
+        phone: '000000001', email: `multiple-${count}@example.com`, address: 'Fictional address',
+        timeLivingHere: '1 a 5 años', reason: 'Fictional request', identityDocumentPaths: paths};
+      allowed(await callable('submitAccessRequest', data, 'anonymous'));
+      const saved = (await db.doc(`accessRequests/${data.requestId}`).get()).data();
+      assert.deepEqual(saved.identityDocuments.map(document => document.storagePath), paths);
+      allowed(await read(`accessRequests/${data.requestId}`, 'admin'));
+      for (const actor of ['neighbor', 'anonymous', 'pending', null]) {
+        denied(await read(`accessRequests/${data.requestId}`, actor));
+      }
+      for (const documentPath of paths) {
+        allowed(await fileRequest(documentPath, 'admin'));
+        for (const actor of ['neighbor', 'pending', null]) denied(await fileRequest(documentPath, actor));
+      }
+      const visible = await callable('getAccessRequestStatus', {dni: data.dni}, null);
+      allowed(visible);
+      assert.deepEqual(Object.keys(visible.body.result.request).sort(), ['createdAt', 'email', 'status']);
+      const invalidId = `invalid-multi-${count}`;
+      denied(await callable('submitAccessRequest', {...data, requestId: invalidId,
+        identityDocumentPaths: [...paths, 'access_requests/other/identity/foreign.pdf']}, 'anonymous'));
+      assert.equal((await db.doc(`accessRequests/${invalidId}`).get()).exists, false);
+    }
+  });
   await t.test('identity extension validation and active-account feedback hold outside Flutter', async () => {
     const documentPath = `access_requests/${anon.localId}/identity/renamed.jpg`;
     allowed(await upload(documentPath, 'anonymous', {mime: 'application/pdf', bytes: pdf, metadata: {uploadedBy: anon.localId}}));

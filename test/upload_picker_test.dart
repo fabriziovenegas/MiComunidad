@@ -370,14 +370,19 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
     picker.select(FileService.maxDocumentBytes, name: 'demo-document.pdf');
-    await tester.ensureVisible(find.text('Toca para adjuntar tu documento'));
-    await tester.tap(find.text('Toca para adjuntar tu documento'));
-    await tester.pumpAndSettle();
+    Future<void> addDocument() async {
+      await tester.ensureVisible(find.text('Añadir archivo'));
+      await tester.tap(find.text('Añadir archivo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Seleccionar archivo'));
+      await tester.pumpAndSettle();
+    }
+
+    await addDocument();
     expect(find.text('demo-document.pdf'), findsOneWidget);
 
     picker.select(FileService.maxDocumentBytes + 1, name: 'too-large.pdf');
-    await tester.tap(find.text('demo-document.pdf'));
-    await tester.pumpAndSettle();
+    await addDocument();
     expect(find.text('El archivo no puede superar 5 MB.'), findsOneWidget);
     expect(find.text('demo-document.pdf'), findsOneWidget);
     expect(find.text('too-large.pdf'), findsNothing);
@@ -391,8 +396,7 @@ void main() {
       throw PlatformException(code: 'conversion_failed');
     });
     picker.select(100, name: 'broken.heic');
-    await tester.tap(find.text('demo-document.pdf'));
-    await tester.pumpAndSettle();
+    await addDocument();
     expect(find.text('demo-document.pdf'), findsOneWidget);
     expect(find.text('broken.heic'), findsNothing);
     expect(find.textContaining('No se pudo convertir la fotografía.'),

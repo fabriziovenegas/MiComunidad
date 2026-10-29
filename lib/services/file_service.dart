@@ -124,7 +124,14 @@ class FileService {
       withData: false,
     );
     if (result == null) return null;
-    final selected = SelectedUpload(result.files.single);
+    return prepareIdentityDocument(result.files.single);
+  }
+
+  // Shared only by the identity-document file, camera and gallery selectors.
+  // Other modules keep their existing formats and size limits.
+  static Future<SelectedUpload> prepareIdentityDocument(
+      PlatformFile file) async {
+    final selected = SelectedUpload(file);
     if (!selectableDocumentExtensions.contains(extensionOf(selected.name))) {
       throw const FileUploadException(
           'Selecciona un archivo JPG, JPEG, PNG, WEBP, HEIC, HEIF o PDF.');

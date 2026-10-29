@@ -2,10 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
 import '../../services/file_service.dart';
-import '../../widgets/upload_picker.dart';
+import '../../services/access_request_document_picker.dart';
+import '../../widgets/access_request_documents_section.dart';
 
 class SignupScreen extends StatefulWidget {
-  const SignupScreen({super.key});
+  const SignupScreen({super.key, this.pickDocument, this.submitRequest});
+
+  final Future<SelectedUpload?> Function(AccessDocumentSource source)?
+      pickDocument;
+  final Future<String> Function(
+      {required String name,
+      required String dni,
+      required String phone,
+      required String email,
+      required String address,
+      required String timeLivingHere,
+      required String reason,
+      required List<SelectedUpload> identityDocuments})? submitRequest;
   @override
   State<SignupScreen> createState() => _SignupScreenState();
 }
@@ -19,7 +32,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _address = TextEditingController();
   final _reason = TextEditingController();
   String? _timeLiving;
-  SelectedUpload? _identityDocument;
+  List<SelectedUpload> _identityDocuments = [];
   bool _loading = false;
 
   @override
@@ -30,23 +43,16 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  Future<void> _pickDocument() async {
-    final selected =
-        await pickUploadWithFeedback(context, FileService.pickIdentityDocument);
-    if (selected != null && mounted) {
-      setState(() => _identityDocument = selected);
-    }
-  }
-
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_identityDocument == null) {
-      _message('Adjunta tu documento de identidad.', error: true);
+    if (_identityDocuments.isEmpty) {
+      _message('Adjunta un documento de respaldo.', error: true);
       return;
     }
     setState(() => _loading = true);
     try {
-      final requestId = await AuthService.instance.submitAccessRequest(
+      final requestId = await (widget.submitRequest ??
+          AuthService.instance.submitAccessRequest)(
         name: _name.text,
         dni: _dni.text,
         phone: _phone.text,
@@ -54,7 +60,7 @@ class _SignupScreenState extends State<SignupScreen> {
         address: _address.text,
         timeLivingHere: _timeLiving!,
         reason: _reason.text,
-        identityDocument: _identityDocument!,
+        identityDocuments: List.unmodifiable(_identityDocuments),
       );
       if (!mounted) return;
       Navigator.pushReplacementNamed(
@@ -202,55 +208,12 @@ class _SignupScreenState extends State<SignupScreen> {
                                   labelText: 'Motivo de la solicitud'),
                               validator: _required),
                           const SizedBox(height: 18),
-                          Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer
-                                  .withValues(alpha: .45),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(Icons.verified_user_outlined),
-                                SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    'Este archivo permite confirmar que perteneces a la comunidad. Adjunta un recibo de agua de tu vivienda o una foto legible de tu DNI.',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Semantics(
-                            button: true,
-                            label: 'Adjuntar documento de identidad',
-                            child: InkWell(
-                              onTap: _loading ? null : _pickDocument,
-                              borderRadius: BorderRadius.circular(16),
-                              child: Container(
-                                padding: const EdgeInsets.all(22),
-                                decoration: BoxDecoration(
-                                    border: Border.all(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .outlineVariant,
-                                        width: 2),
-                                    borderRadius: BorderRadius.circular(16)),
-                                child: Column(
-                                  children: [
-                                    const Icon(Icons.upload_file, size: 42),
-                                    const SizedBox(height: 8),
-                                    Text(_identityDocument?.name ??
-                                        'Toca para adjuntar tu documento'),
-                                    const Text('JPG, JPEG, PNG, WEBP, HEIC, HEIF o PDF · máximo 5 MB'),
-                                  ],
-                                ),
-                              ),
-                            ),
+                          AccessRequestDocumentsSection(
+                            documents: _identityDocuments,
+                            enabled: !_loading,
+                            pick: widget.pickDocument,
+                            onChanged: (files) =>
+                                setState(() => _identityDocuments = files),
                           ),
                           const SizedBox(height: 22),
                           FilledButton.icon(
@@ -264,11 +227,6 @@ class _SignupScreenState extends State<SignupScreen> {
                             label: Text(
                                 _loading ? 'Enviando…' : 'Enviar solicitud'),
                           ),
-                          TextButton(
-                              onPressed: _loading
-                                  ? null
-                                  : () => Navigator.pop(context),
-                              child: const Text('Volver atrás')),
                         ],
                       ),
                     ),
@@ -277,7 +235,7 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
               const SizedBox(height: 14),
               const Text(
-                  'Al enviar esta solicitud, aceptas los términos de convivencia de la junta vecinal.',
+                  'Al enviar tu solicitud, aceptas las normas de convivencia de la comunidad.',
                   textAlign: TextAlign.center),
             ],
           ),

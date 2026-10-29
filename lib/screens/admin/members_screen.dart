@@ -1,7 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../services/private_file_service.dart';
+import '../../widgets/access_request_document_links.dart';
 import '../../models/access_request.dart';
 import '../../models/user_model.dart';
 import '../../services/community_service.dart';
@@ -103,7 +103,7 @@ class _MembersScreenState extends State<MembersScreen>
         builder: (context) => AlertDialog(
                 title: const Text('Retirar acceso'),
                 content: Text('¿Deseas retirar el acceso de ${user.nombre}? '
-                    'Sus solicitudes aprobadas se conservarán como historial de acceso retirado.'),
+                    'Su historial de solicitudes y sus aportes a la comunidad se conservarán.'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(context, false),
@@ -213,22 +213,7 @@ class _MembersScreenState extends State<MembersScreen>
                             children: [
                               AccessRequestDetails(request: request),
                               const SizedBox(height: 20),
-                              OutlinedButton.icon(
-                                  onPressed: () async {
-                                    try {
-                                      await PrivateFileService.open(
-                                          request.identityDocumentUrl);
-                                    } catch (_) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(const SnackBar(
-                                                content: Text(
-                                                    'No se pudo abrir el documento adjunto.')));
-                                      }
-                                    }
-                                  },
-                                  icon: const Icon(Icons.description),
-                                  label: const Text('Abrir documento adjunto')),
+                              AccessRequestDocumentLinks(request: request),
                               if (_canApprove(request) ||
                                   _canReject(request)) ...[
                                 const SizedBox(height: 10),
@@ -329,6 +314,7 @@ class _MembersScreenState extends State<MembersScreen>
                                       ),
                                       IconButton(
                                         tooltip: 'Aprobar',
+                                        color: const Color(0xFF276749),
                                         onPressed: _busyId == null
                                             ? () => _review(request, true)
                                             : null,

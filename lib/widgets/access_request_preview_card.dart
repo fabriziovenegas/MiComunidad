@@ -100,7 +100,7 @@ class AccessRequestPreviewCard extends StatelessWidget {
       child: InkWell(
         onTap: onOpen,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: LayoutBuilder(builder: (context, constraints) {
             // Measure the longest supported status, rather than the current
             // label, so every badge has the same dimensions at this text scale.
@@ -185,11 +185,17 @@ class AccessRequestPreviewCard extends StatelessWidget {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                          name,
-                          if (!useFullWidth) ...[
-                            const SizedBox(height: 8),
-                            metadata(),
-                          ]
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 48),
+                            child: Row(children: [
+                              Expanded(child: name),
+                              if (reviewActions != null) ...[
+                                const SizedBox(width: 8),
+                                reviewActions!,
+                              ],
+                            ]),
+                          ),
+                          if (!useFullWidth) metadata(),
                         ])),
                     if (reviewActions == null) ...[
                       const SizedBox(width: 10),
@@ -197,12 +203,6 @@ class AccessRequestPreviewCard extends StatelessWidget {
                     ],
                   ]),
                   if (useFullWidth) ...[const SizedBox(height: 12), metadata()],
-                  if (reviewActions != null) ...[
-                    const SizedBox(height: 6),
-                    Align(
-                        alignment: Alignment.centerRight,
-                        child: reviewActions!),
-                  ],
                 ]);
           }),
         ),

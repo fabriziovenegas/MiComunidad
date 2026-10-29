@@ -229,9 +229,25 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
     if (!identityDocumentPath || !identityDocumentUrl || identityDocumentUrl.length > 4096) {
       throw new HttpsError("invalid-argument", "Adjunta tu documento de identidad.");
     }
-    const submissionFingerprint = createHash("sha256").update(JSON.stringify([
+    const documents = data.identityDocuments;
+    if (documents !== undefined && (!Array.isArray(documents) || documents.length < 1 || documents.length > 3 ||
+        documents.some((document) => !document || typeof document !== "object" || Array.isArray(document) ||
+          Object.keys(document).sort().join(",") !== "contentType,name,size,storagePath,url" ||
+          typeof document.storagePath !== "string" || !document.storagePath.startsWith(`access_requests/${applicantUid}/identity/`) ||
+          typeof document.url !== "string" || !document.url.startsWith("gs://") || !document.url.endsWith("/" + document.storagePath) ||
+          typeof document.name !== "string" || !document.name || document.name.length > 400 ||
+          !Number.isInteger(document.size) || document.size < 1 || document.size > 5 * 1024 * 1024 ||
+          !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(document.contentType)) ||
+        new Set(documents.map((document) => document.storagePath)).size !== documents.length ||
+        documents[0].storagePath !== identityDocumentPath || documents[0].url !== identityDocumentUrl)) {
+      throw new HttpsError("invalid-argument", "Los documentos de respaldo no son válidos.");
+    }
+    const fingerprintParts = [
       applicantUid, ...fields.map((key) => profile[key]), identityDocumentPath,
-    ])).digest("hex");
+    ];
+    // Preserve the exact historical one-file fingerprint for safe retries.
+    if (documents?.length > 1) fingerprintParts.push(documents.slice(1).map((document) => document.storagePath));
+    const submissionFingerprint = createHash("sha256").update(JSON.stringify(fingerprintParts)).digest("hex");
     const reference = requests.doc(requestId);
     await db.runTransaction(async (transaction) => {
       const existing = await transaction.get(reference);
@@ -244,6 +260,7 @@ function createProfileIdentity({firestore: db, auth, HttpsError, FieldValue}) {
       await assertEmailAvailable(transaction, applicantUid, profile.email);
       transaction.set(reference, {
         applicantUid, ...profileSnapshot(profile), identityDocumentPath, identityDocumentUrl,
+        ...(documents ? {identityDocuments: documents} : {}),
         status: "pendiente", submissionFingerprint,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       });

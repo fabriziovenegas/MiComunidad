@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart' as firebase;
 import '../models/user_model.dart';
 import 'file_service.dart';
 import 'access_request_feedback.dart';
+import 'access_request_documents_sender.dart';
 
 class AuthService {
   AuthService._();
@@ -98,7 +99,7 @@ class AuthService {
     required String address,
     required String timeLivingHere,
     required String reason,
-    required SelectedUpload identityDocument,
+    required List<SelectedUpload> identityDocuments,
   }) async {
     Map<String, dynamic>? existingRequest;
     try {
@@ -127,25 +128,32 @@ class AuthService {
             'Cierra sesión antes de enviar otra solicitud.');
       }
       final anonymous = current ?? (await _auth.signInAnonymously()).user!;
-      final uploaded = await FileService.upload(
-        selected: identityDocument,
-        folder: 'access_requests/${anonymous.uid}/identity',
-        uploadedBy: anonymous.uid,
-      );
       final document = _db.collection('accessRequests').doc();
-      final result = await _functions
-          .httpsCallable('submitAccessRequest')
-          .call<Map<String, dynamic>>({
-        'requestId': document.id,
-        'name': name.trim(),
-        'dni': dni.trim(),
-        'phone': phone.trim(),
-        'email': email.trim().toLowerCase(),
-        'address': address.trim(),
-        'timeLivingHere': timeLivingHere,
-        'reason': reason.trim(),
-        'identityDocumentPath': uploaded.storagePath,
-      });
+      final result = await sendAccessRequestDocuments(
+        documents: identityDocuments,
+        upload: (file) => FileService.upload(
+          selected: file,
+          folder: 'access_requests/${anonymous.uid}/identity',
+          uploadedBy: anonymous.uid,
+        ),
+        submit: (uploaded) => _functions
+            .httpsCallable('submitAccessRequest')
+            .call<Map<String, dynamic>>({
+          'requestId': document.id,
+          'name': name.trim(),
+          'dni': dni.trim(),
+          'phone': phone.trim(),
+          'email': email.trim().toLowerCase(),
+          'address': address.trim(),
+          'timeLivingHere': timeLivingHere,
+          'reason': reason.trim(),
+          if (uploaded.length == 1)
+            'identityDocumentPath': uploaded.single.storagePath
+          else
+            'identityDocumentPaths':
+                uploaded.map((file) => file.storagePath).toList(),
+        }),
+      );
       if (result.data['requestId'] != document.id) {
         throw const AuthFlowException(
             'No pudimos confirmar la solicitud. Consulta su estado antes de reenviarla.');

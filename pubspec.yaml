@@ -25,6 +25,7 @@ dependencies:
 
   # UI
   file_picker: ^10.3.10
+  image_picker: ^1.2.4
   url_launcher: ^6.3.2
   google_fonts: ^6.1.0
 
