@@ -1,3 +1,4 @@
+import '../../widgets/limited_text_form_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
@@ -124,7 +125,8 @@ class _SignupScreenState extends State<SignupScreen> {
                           const Text(
                               'Todos los campos son obligatorios. El administrador revisará la solicitud.'),
                           const SizedBox(height: 24),
-                          TextFormField(
+                          LimitedTextFormField(
+                              characterLimit: 160,
                               controller: _name,
                               textCapitalization: TextCapitalization.words,
                               decoration: const InputDecoration(
@@ -161,7 +163,8 @@ class _SignupScreenState extends State<SignupScreen> {
                                 : 'El teléfono debe tener 9 dígitos.',
                           ),
                           const SizedBox(height: 14),
-                          TextFormField(
+                          LimitedTextFormField(
+                            characterLimit: 320,
                             controller: _email,
                             keyboardType: TextInputType.emailAddress,
                             decoration: const InputDecoration(
@@ -174,7 +177,8 @@ class _SignupScreenState extends State<SignupScreen> {
                                 : 'Ingresa un correo válido.',
                           ),
                           const SizedBox(height: 14),
-                          TextFormField(
+                          LimitedTextFormField(
+                              characterLimit: 300,
                               controller: _address,
                               textCapitalization: TextCapitalization.sentences,
                               decoration: const InputDecoration(
@@ -200,7 +204,8 @@ class _SignupScreenState extends State<SignupScreen> {
                                 value == null ? 'Selecciona una opción.' : null,
                           ),
                           const SizedBox(height: 14),
-                          TextFormField(
+                          LimitedTextFormField(
+                              characterLimit: 1000,
                               controller: _reason,
                               minLines: 3,
                               maxLines: 5,

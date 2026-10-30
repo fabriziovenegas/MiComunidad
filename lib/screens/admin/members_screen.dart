@@ -1,3 +1,4 @@
+import '../../widgets/limited_text_form_field.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -42,26 +43,35 @@ class _MembersScreenState extends State<MembersScreen>
     }
     String? reason;
     if (!approve) {
+      final reasonForm = GlobalKey<FormState>();
       var inputReason = '';
       reason = await showDialog<String>(
           context: context,
           builder: (context) => AlertDialog(
                   title: const Text('Rechazar solicitud'),
-                  content: TextField(
-                      onChanged: (value) => inputReason = value,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                          labelText: 'Motivo del rechazo',
-                          labelStyle: TextStyle(fontWeight: FontWeight.bold),
-                          helperText:
-                              'El motivo quedará registrado internamente.',
-                          helperMaxLines: 3)),
+                  content: Form(
+                      key: reasonForm,
+                      child: LimitedTextFormField(
+                          characterLimit: 1000,
+                          onChanged: (value) => inputReason = value,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                              labelText: 'Motivo del rechazo',
+                              labelStyle:
+                                  TextStyle(fontWeight: FontWeight.bold),
+                              helperText:
+                                  'El motivo quedará registrado internamente.',
+                              helperMaxLines: 3))),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.pop(context),
                         child: const Text('Cancelar')),
                     FilledButton(
-                        onPressed: () => Navigator.pop(context, inputReason),
+                        onPressed: () {
+                          if (reasonForm.currentState!.validate()) {
+                            Navigator.pop(context, inputReason);
+                          }
+                        },
                         child: const Text('Rechazar'))
                   ]));
       if (reason == null) return;
@@ -289,8 +299,11 @@ class _MembersScreenState extends State<MembersScreen>
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
                       child: Text('Solicitudes de acceso',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontSize: 20, fontWeight: FontWeight.w700)),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                  fontSize: 20, fontWeight: FontWeight.w700)),
                     ),
                     Expanded(
                       child: ListView.builder(
@@ -301,7 +314,8 @@ class _MembersScreenState extends State<MembersScreen>
                           return AccessRequestPreviewCard(
                             request: request,
                             onOpen: () => _details(request),
-                            reviewActions: _canApprove(request) || _canReject(request)
+                            reviewActions: _canApprove(request) ||
+                                    _canReject(request)
                                 ? Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [

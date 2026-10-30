@@ -36,7 +36,8 @@ class PrivateFileService {
     final valid = parts.length == 4 &&
         const ['projects', 'reports', 'events'].contains(parts[0]) &&
         (parts[2] == 'photos' ||
-            (parts[0] == 'events' && parts[2] == 'minutes'));
+            (const ['events', 'projects'].contains(parts[0]) &&
+                parts[2] == 'minutes'));
     final identity = parts.length == 4 &&
         parts[0] == 'access_requests' &&
         parts[2] == 'identity';

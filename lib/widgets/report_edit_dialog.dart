@@ -1,3 +1,4 @@
+import 'limited_text_form_field.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 
@@ -78,7 +79,8 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    TextFormField(
+                    LimitedTextFormField(
+                      characterLimit: 160,
                       enabled: !_busy,
                       readOnly: !_canEditContent,
                       initialValue: _title,
@@ -87,7 +89,8 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                       decoration: const InputDecoration(labelText: 'Título'),
                     ),
                     const SizedBox(height: 10),
-                    TextFormField(
+                    LimitedTextFormField(
+                      characterLimit: 4000,
                       enabled: !_busy,
                       readOnly: !_canEditContent,
                       initialValue: _description,
@@ -99,7 +102,8 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                           const InputDecoration(labelText: 'Descripción'),
                     ),
                     const SizedBox(height: 10),
-                    TextFormField(
+                    LimitedTextFormField(
+                      characterLimit: 300,
                       enabled: !_busy,
                       readOnly: !_canEditContent,
                       initialValue: _location,

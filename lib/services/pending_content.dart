@@ -1,3 +1,4 @@
+import '../models/project_dates.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// A new record or comment keeps its identity for the whole delivery lifecycle.
@@ -40,8 +41,12 @@ class PendingContent {
         : collection == 'projects'
             ? {'title', 'location', 'description', 'progress', 'status'}
             : {'title', 'location', 'description', 'eventDate'};
+    final optional = !isComment && collection == 'projects'
+        ? {'startDate', 'expectedEndDate'}
+        : <String>{};
     if (!fields.keys.toSet().containsAll(allowed) ||
-        fields.keys.any((key) => !allowed.contains(key))) {
+        fields.keys
+            .any((key) => !allowed.contains(key) && !optional.contains(key))) {
       throw const FormatException('Unexpected pending fields');
     }
     if (isComment) {
@@ -59,6 +64,9 @@ class PendingContent {
         throw ArgumentError('Revisa los datos del formulario.');
       }
       if (collection == 'projects') {
+        if (!ProjectDates.valid(fields)) {
+          throw ArgumentError('Revisa las fechas del proyecto.');
+        }
         final progress = fields['progress'];
         if ((fields['description'] as String).trim().isEmpty ||
             progress is! int ||
@@ -96,9 +104,11 @@ class PendingContent {
       throw const FormatException('Unknown pending version');
     }
     final fields = Map<String, dynamic>.from(json['fields'] as Map);
-    if (fields['eventDate'] case final Map value) {
-      final parts = value['timestamp'] as List;
-      fields['eventDate'] = Timestamp(parts[0] as int, parts[1] as int);
+    for (final key in ['eventDate', 'startDate', 'expectedEndDate']) {
+      if (fields[key] case final Map value) {
+        final parts = value['timestamp'] as List;
+        fields[key] = Timestamp(parts[0] as int, parts[1] as int);
+      }
     }
     final item = PendingContent(
         id: json['id'] as String,

@@ -1,3 +1,4 @@
+import '../../widgets/limited_text_form_field.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -76,7 +77,8 @@ class AgendaScreen extends StatelessWidget {
                                 child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 160,
                                           enabled: !saving,
                                           initialValue: title,
                                           onChanged: (value) => title = value,
@@ -87,7 +89,8 @@ class AgendaScreen extends StatelessWidget {
                                           decoration: const InputDecoration(
                                               labelText: 'Título')),
                                       const SizedBox(height: 10),
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 300,
                                           enabled: !saving,
                                           initialValue: location,
                                           onChanged: (value) =>
@@ -95,7 +98,8 @@ class AgendaScreen extends StatelessWidget {
                                           decoration: const InputDecoration(
                                               labelText: 'Lugar')),
                                       const SizedBox(height: 10),
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 4000,
                                           enabled: !saving,
                                           initialValue: description,
                                           onChanged: (value) =>

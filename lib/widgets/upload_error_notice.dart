@@ -13,8 +13,11 @@ void showUploadError(BuildContext context, String message) =>
 void showSuccessNotice(BuildContext context, String message) =>
     _showNotice(context, message, isError: false);
 
+void showWarningNotice(BuildContext context, String message) =>
+    _showNotice(context, message, isError: false, isWarning: true);
+
 void _showNotice(BuildContext context, String message,
-    {required bool isError}) {
+    {required bool isError, bool isWarning = false}) {
   if (!context.mounted) return;
   final overlay = Overlay.maybeOf(context, rootOverlay: true);
   if (overlay == null) return;
@@ -34,6 +37,7 @@ void _showNotice(BuildContext context, String message,
     builder: (_) => _OverlayNotice(
       message: message,
       isError: isError,
+      isWarning: isWarning,
       onDismiss: dismiss,
       onDisposed: () {
         dismissed = true;
@@ -49,12 +53,13 @@ class _OverlayNotice extends StatefulWidget {
   const _OverlayNotice({
     required this.message,
     required this.isError,
+    required this.isWarning,
     required this.onDismiss,
     required this.onDisposed,
   });
 
   final String message;
-  final bool isError;
+  final bool isError, isWarning;
   final VoidCallback onDismiss;
   final VoidCallback onDisposed;
 
@@ -101,12 +106,16 @@ class _OverlayNoticeState extends State<_OverlayNotice> {
                 liveRegion: true,
                 container: true,
                 child: Material(
-                  key: ValueKey(widget.isError
-                      ? 'upload-error-notice'
-                      : 'save-success-notice'),
-                  color: widget.isError
-                      ? const Color(0xFFB3261E)
-                      : const Color(0xFF276749),
+                  key: ValueKey(widget.isWarning
+                      ? 'save-warning-notice'
+                      : widget.isError
+                          ? 'upload-error-notice'
+                          : 'save-success-notice'),
+                  color: widget.isWarning
+                      ? const Color(0xFFFFE6A7)
+                      : widget.isError
+                          ? const Color(0xFFB3261E)
+                          : const Color(0xFF276749),
                   elevation: 8,
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
@@ -114,19 +123,29 @@ class _OverlayNoticeState extends State<_OverlayNotice> {
                     child: Row(
                       children: [
                         Icon(
-                            widget.isError
-                                ? Icons.error_outline
-                                : Icons.check_circle_outline,
-                            color: Colors.white),
+                            widget.isWarning
+                                ? Icons.schedule_outlined
+                                : widget.isError
+                                    ? Icons.error_outline
+                                    : Icons.check_circle_outline,
+                            color: widget.isWarning
+                                ? const Color(0xFF5D4300)
+                                : Colors.white),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(widget.message,
-                              style: const TextStyle(color: Colors.white)),
+                              style: TextStyle(
+                                  color: widget.isWarning
+                                      ? const Color(0xFF5D4300)
+                                      : Colors.white)),
                         ),
                         IconButton(
                           tooltip: 'Cerrar aviso',
                           onPressed: widget.onDismiss,
-                          icon: const Icon(Icons.close, color: Colors.white),
+                          icon: Icon(Icons.close,
+                              color: widget.isWarning
+                                  ? const Color(0xFF5D4300)
+                                  : Colors.white),
                         ),
                       ],
                     ),

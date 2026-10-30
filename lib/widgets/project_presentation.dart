@@ -1,3 +1,5 @@
+import '../models/project_dates.dart';
+import 'project_dates_fields.dart';
 import 'package:flutter/material.dart';
 import '../utils/text_encoding.dart';
 import 'expandable_description.dart';
@@ -209,7 +211,9 @@ class ProjectInformation extends StatelessWidget {
         progress == null &&
         location.isEmpty &&
         description.isEmpty &&
-        !hasCreator) {
+        !hasCreator &&
+        ProjectDates.date(data['startDate']) == null &&
+        ProjectDates.date(data['expectedEndDate']) == null) {
       return const SizedBox.shrink();
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -268,6 +272,11 @@ class ProjectInformation extends StatelessWidget {
             contentId: projectId!,
             data: data,
             user: user),
+        const SizedBox(height: 24),
+      ],
+      if (ProjectDates.date(data['startDate']) != null ||
+          ProjectDates.date(data['expectedEndDate']) != null) ...[
+        ProjectDatesSummary(data: data),
         const SizedBox(height: 24),
       ],
       if (description.isNotEmpty) ...[

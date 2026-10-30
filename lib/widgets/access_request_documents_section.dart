@@ -5,6 +5,7 @@ import '../services/file_service.dart';
 import 'selected_upload_preview.dart';
 import 'upload_error_notice.dart';
 import 'upload_picker.dart';
+import 'document_source_menu.dart';
 
 class AccessRequestDocumentsSection extends StatefulWidget {
   const AccessRequestDocumentsSection({
@@ -64,36 +65,7 @@ class _AccessRequestDocumentsSectionState
     }
     setState(() => _picking = true);
     try {
-      final source = await showModalBottomSheet<AccessDocumentSource>(
-        context: context,
-        showDragHandle: true,
-        builder: (sheetContext) => SafeArea(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            for (final entry in const [
-              (
-                AccessDocumentSource.camera,
-                Icons.photo_camera_outlined,
-                'Tomar foto'
-              ),
-              (
-                AccessDocumentSource.gallery,
-                Icons.photo_library_outlined,
-                'Elegir de galería'
-              ),
-              (
-                AccessDocumentSource.file,
-                Icons.attach_file,
-                'Seleccionar archivo'
-              ),
-            ])
-              ListTile(
-                leading: Icon(entry.$2),
-                title: Text(entry.$3),
-                onTap: () => Navigator.pop(sheetContext, entry.$1),
-              ),
-          ]),
-        ),
-      );
+      final source = await showDocumentSourceMenu(context);
       if (!mounted || source == null || !widget.enabled) return;
       final selected = await pickUploadWithFeedback(context, () async {
         final file = await (widget.pick ?? _picker.pick)(source);

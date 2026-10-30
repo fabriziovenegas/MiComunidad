@@ -1,3 +1,4 @@
+import 'comment_content_editor.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -296,12 +297,14 @@ class CommunityService {
 
       var deletedStorageFiles = 0;
       try {
-        final paths = await FileService.listFilesRecursively(
-          'projects/$projectId/photos',
-        );
-        for (final path in paths) {
-          await FileService.delete(storagePath: path);
-          deletedStorageFiles++;
+        for (final kind in const ['photos', 'minutes']) {
+          final paths = await FileService.listFilesRecursively(
+            'projects/$projectId/$kind',
+          );
+          for (final path in paths) {
+            await FileService.delete(storagePath: path);
+            deletedStorageFiles++;
+          }
         }
         completedSteps.add(
           'archivos de Storage ($deletedStorageFiles)',
@@ -327,11 +330,18 @@ class CommunityService {
       );
 
       final deletedCommentDocuments = await _deleteProjectSubcollection(
+        collection: projectReference.collection('minutes'),
+        description: 'eliminar los registros de documentos',
+        completedSteps: completedSteps,
+      );
+      completedSteps.add('registros de documentos ($deletedCommentDocuments)');
+
+      final deletedComments = await _deleteProjectSubcollection(
         collection: projectReference.collection('comments'),
         description: 'eliminar los comentarios',
         completedSteps: completedSteps,
       );
-      completedSteps.add('comentarios ($deletedCommentDocuments)');
+      completedSteps.add('comentarios ($deletedComments)');
 
       try {
         await projectReference.delete();
@@ -669,6 +679,37 @@ class CommunityService {
         kind: kind,
         selected: selected,
       );
+
+  Future<PhotoBatchResult> addPhotos({
+    required String collection,
+    required String documentId,
+    required List<SelectedUpload> photos,
+    required String expectedUserId,
+  }) =>
+      PendingUploadService.instance.sendPhotos(
+          collection: collection,
+          documentId: documentId,
+          photos: photos,
+          expectedUserId: expectedUserId);
+
+  Future<void> editComment(
+          {required String collection,
+          required String documentId,
+          required String commentId,
+          required String originalText,
+          required String text}) =>
+      CommentContentEditor(
+              firestore: _db,
+              currentUserId: () {
+                final user = FirebaseAuth.instance.currentUser;
+                return user == null || user.isAnonymous ? null : user.uid;
+              })
+          .save(
+              collection: collection,
+              documentId: documentId,
+              commentId: commentId,
+              originalText: originalText,
+              text: text);
 
   Future<void> deleteComment({
     required String collection,

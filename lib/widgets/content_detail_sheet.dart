@@ -1,3 +1,5 @@
+import 'comment_edit_dialog.dart';
+import 'content_comment_tile.dart';
 import 'private_storage_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +11,8 @@ import '../services/file_service.dart';
 import 'image_gallery_screen.dart';
 import '../utils/text_encoding.dart';
 import 'content_comment_composer.dart';
-import 'upload_picker.dart';
+import 'document_source_menu.dart';
+import 'photo_source_menu.dart';
 import 'upload_error_notice.dart';
 import 'content_information.dart';
 import 'project_presentation.dart';
@@ -47,6 +50,7 @@ class ContentDetailSheet extends StatefulWidget {
 
 class _ContentDetailSheetState extends State<ContentDetailSheet> {
   bool _busy = false;
+  final List<SelectedUpload> _failedPhotos = [];
   String? _uploadMessage;
   bool _uploadFailed = false;
   String? _uploadKind;
@@ -58,17 +62,106 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
           (widget.collection == 'reports' && widget.allowCommentsWhenReadOnly));
 
   Future<void> _addImage() async {
-    final selected =
-        await pickUploadWithFeedback(context, FileService.pickImage);
-    if (selected == null) return;
-    await _upload(selected, 'photos');
+    if (_busy || widget.readOnly || !widget.user.isApproved) return;
+    setState(() => _busy = true);
+    try {
+      final selection = await pickPhotosWithMenu(context);
+      if (!mounted || selection.photos.isEmpty) return;
+      await _uploadPhotos(selection.photos, selection.errors);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _retryPhotos() async {
+    if (_busy || widget.readOnly || !widget.user.isApproved) return;
+    setState(() => _busy = true);
+    try {
+      await _uploadPhotos(List.of(_failedPhotos), const []);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _uploadPhotos(
+      List<SelectedUpload> photos, List<String> errors) async {
+    setState(() {
+      _uploadKind = 'photos';
+      _uploadMessage = null;
+      _uploadFailed = false;
+    });
+    try {
+      final result = await CommunityService.instance.addPhotos(
+          collection: widget.collection,
+          documentId: widget.documentId,
+          photos: photos,
+          expectedUserId: widget.user.userId);
+      if (!mounted) return;
+      final sent =
+          result.results.where((r) => r.state == PendingSendState.sent).length;
+      final queued = result.results
+          .where((r) => r.state == PendingSendState.queued)
+          .length;
+      final blocked = result.results
+          .where((r) => r.state == PendingSendState.blocked)
+          .length;
+      final messages = <String>[
+        if (sent > 0)
+          sent == 1
+              ? 'Fotografía subida correctamente.'
+              : '$sent fotografías subidas correctamente.',
+        if (queued > 0)
+          '$queued pendiente(s) de envío. Se reintentará con la app abierta; si no hay conexión, cuando se restaure.',
+        if (blocked > 0)
+          '$blocked fotografía(s) requieren revisión en los pendientes.',
+        ...errors,
+        for (final failure in result.failures.entries)
+          '${failure.key.name}: ${failure.value}',
+      ];
+      final hasError = blocked > 0 ||
+          result.failures.isNotEmpty ||
+          errors.isNotEmpty ||
+          result.results.any((r) => r.reason != null);
+      setState(() {
+        _failedPhotos.addAll(
+            result.failures.keys.where((p) => !_failedPhotos.contains(p)));
+        _failedPhotos.removeWhere(
+            (p) => photos.contains(p) && !result.failures.containsKey(p));
+        _uploadFailed = hasError;
+        // Queue notices remain the live source of pending/completed status.
+        final selectionErrors = [
+          ...errors,
+          for (final failure in result.failures.entries)
+            '${failure.key.name}: ${failure.value}',
+        ];
+        _uploadMessage = selectionErrors.isNotEmpty
+            ? selectionErrors.join('\n')
+            : queued == 0 && blocked == 0
+                ? messages.join('\n')
+                : null;
+      });
+      if (hasError) {
+        showUploadError(context, messages.join('\n'));
+      } else {
+        showSuccessNotice(context, messages.join('\n'));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      showUploadError(context,
+          'No se pudo completar la subida. Revisa los archivos pendientes.');
+    }
   }
 
   Future<void> _addMinutes() async {
-    final selected =
-        await pickUploadWithFeedback(context, FileService.pickIdentityDocument);
-    if (selected == null) return;
-    await _upload(selected, 'minutes');
+    if (_busy || widget.readOnly || !widget.user.isApproved) return;
+    setState(() => _busy = true);
+    try {
+      final selected = await pickDocumentWithMenu(context);
+      if (!mounted || selected == null) return;
+      await _upload(selected, 'minutes');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _upload(SelectedUpload selected, String kind) async {
@@ -193,7 +286,7 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                     child: OutlinedButton.icon(
                         onPressed: _busy ? null : _addMinutes,
                         icon: const Icon(Icons.upload_file),
-                        label: const Text('Subir acta')))
+                        label: const Text('Adjuntar documento')))
               ]
             ]),
           if (!photoLayout && _uploadMessage != null) ...[
@@ -248,10 +341,14 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                   icon: const Icon(Icons.add_photo_alternate),
                   label: const Text('Añadir fotografía'),
                 )),
+            if (_failedPhotos.isNotEmpty)
+              TextButton(
+                  onPressed: _busy ? null : _retryPhotos,
+                  child: const Text('Reintentar fotos no guardadas')),
           ],
           if (photoLayout &&
               _uploadMessage != null &&
-              (!isAgenda || _uploadKind != 'minutes')) ...[
+              (!(isAgenda || isProject) || _uploadKind != 'minutes')) ...[
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
@@ -265,10 +362,14 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
               child: Text(_uploadMessage!),
             ),
           ],
-          if (widget.allowMinutes) ...[
-            if (isAgenda) ...[
+          if (widget.allowMinutes || isProject) ...[
+            if (isAgenda || isProject) ...[
               const Divider(height: 44),
-              Text('Actas y documentos', style: sectionStyle),
+              Text(
+                  isProject
+                      ? 'Documentos del proyecto'
+                      : 'Documentos de la actividad',
+                  style: sectionStyle),
               const SizedBox(height: 16),
               PendingAttachmentsNotice(
                   collection: widget.collection,
@@ -276,6 +377,7 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                   kind: 'minutes',
                   userId: widget.user.userId),
               AgendaAttachments(
+                  collection: widget.collection,
                   eventId: widget.documentId,
                   kind: 'minutes',
                   user: widget.user,
@@ -292,7 +394,9 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12))),
                         icon: const Icon(Icons.upload_file),
-                        label: const Text('Adjuntar acta'))),
+                        label: Text(isProject
+                            ? 'Adjuntar documento'
+                            : 'Adjuntar documento'))),
               ],
               if (_uploadKind == 'minutes' && _uploadMessage != null) ...[
                 const SizedBox(height: 12),
@@ -337,24 +441,25 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                   children: docs.map((doc) {
                 final data = doc.data();
                 final date = (data['createdAt'] as Timestamp?)?.toDate();
-                return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(child: Icon(Icons.person)),
-                    title: Text(readableText(data['authorName']).isEmpty
+                return ContentCommentTile(
+                    key: ValueKey(doc.id),
+                    author: readableText(data['authorName']).isEmpty
                         ? 'Vecino'
-                        : readableText(data['authorName'])),
-                    subtitle: Text(readableText(data['text'])),
-                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      if (date != null) Text(DateFormat('dd/MM').format(date)),
-                      if (!widget.readOnly &&
-                          (widget.user.isAdmin ||
-                              data['authorId'] == widget.user.userId))
-                        IconButton(
-                          tooltip: 'Eliminar comentario',
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => _deleteComment(doc.id),
-                        ),
-                    ]));
+                        : readableText(data['authorName']),
+                    text: readableText(data['text']),
+                    date: date == null
+                        ? null
+                        : DateFormat("d 'de' MMMM 'de' y", 'es').format(date),
+                    onEdit: _canAddComments &&
+                            data['authorId'] == widget.user.userId
+                        ? () =>
+                            _editComment(doc.id, data['text'] as String? ?? '')
+                        : null,
+                    onDelete: !widget.readOnly &&
+                            (widget.user.isAdmin ||
+                                data['authorId'] == widget.user.userId)
+                        ? () => _deleteComment(doc.id)
+                        : null);
               }).toList());
             },
           ),
@@ -370,6 +475,23 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
         ],
       ),
     );
+  }
+
+  Future<void> _editComment(String id, String originalText) async {
+    final saved = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => CommentEditDialog(
+            initialText: readableText(originalText),
+            onSave: (text) => CommunityService.instance.editComment(
+                collection: widget.collection,
+                documentId: widget.documentId,
+                commentId: id,
+                originalText: originalText,
+                text: text)));
+    if (saved == true && mounted) {
+      showSuccessNotice(context, 'Comentario actualizado.');
+    }
   }
 
   Future<void> _deleteComment(String commentId) async {

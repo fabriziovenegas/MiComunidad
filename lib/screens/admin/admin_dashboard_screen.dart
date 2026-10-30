@@ -28,13 +28,7 @@ class AdminDashboardScreen extends StatelessWidget {
         const SizedBox(height: 18),
         const CommunityInfoButton(),
         const SizedBox(height: 18),
-        GridView.count(
-          crossAxisCount: MediaQuery.sizeOf(context).width > 720 ? 4 : 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: 1.35,
+        _AdaptiveCounts(
           children: [
             _Count(
                 firestore: firestore,
@@ -148,8 +142,10 @@ class _Count extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Icon(icon, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(height: 8),
                   Text('${snapshot.data?.size ?? 0}',
                       style: Theme.of(context).textTheme.headlineMedium),
+                  const SizedBox(height: 4),
                   Text(label)
                 ]),
           ),
@@ -157,4 +153,40 @@ class _Count extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Equal height within each row, with room to grow for text and accessibility.
+class _AdaptiveCounts extends StatelessWidget {
+  const _AdaptiveCounts({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth > 684 ? 4 : 2;
+          final tileWidth =
+              (constraints.maxWidth - 12 * (columns - 1)) / columns;
+          return Column(children: [
+            for (var start = 0; start < children.length; start += columns) ...[
+              if (start > 0) const SizedBox(height: 12),
+              ConstrainedBox(
+                constraints: BoxConstraints(minHeight: tileWidth / 1.35),
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = start;
+                          i < start + columns && i < children.length;
+                          i++) ...[
+                        if (i > start) const SizedBox(width: 12),
+                        Expanded(child: children[i]),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ]);
+        },
+      );
 }

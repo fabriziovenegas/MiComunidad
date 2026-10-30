@@ -1,3 +1,4 @@
+import '../widgets/limited_text_form_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -118,7 +119,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              TextFormField(
+              LimitedTextFormField(
+                characterLimit: 160,
                 enabled: !_saving,
                 controller: _name,
                 textCapitalization: TextCapitalization.words,
@@ -155,7 +157,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     : 'El teléfono debe tener 9 dígitos.',
               ),
               const SizedBox(height: 12),
-              TextFormField(
+              LimitedTextFormField(
+                characterLimit: 320,
                 enabled: !_saving,
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
@@ -173,7 +176,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
-              TextFormField(
+              LimitedTextFormField(
+                characterLimit: 300,
                 enabled: !_saving,
                 controller: _address,
                 textCapitalization: TextCapitalization.sentences,
@@ -207,7 +211,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 validator: _required,
               ),
               const SizedBox(height: 12),
-              TextFormField(
+              LimitedTextFormField(
+                characterLimit: 1000,
                 enabled: !_saving,
                 controller: _reason,
                 minLines: 3,

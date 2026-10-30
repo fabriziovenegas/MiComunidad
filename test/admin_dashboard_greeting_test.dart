@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:micomunidad/core/theme/app_theme.dart';
 import 'package:micomunidad/models/user_model.dart';
 import 'package:micomunidad/screens/admin/admin_dashboard_screen.dart';
 
@@ -42,6 +44,69 @@ Future<void> showDashboard(
 }
 
 void main() {
+  for (final width in [320.0, 360.0, 412.0, 800.0, 1200.0]) {
+    for (final scale in [1.0, 1.5, 2.0]) {
+      testWidgets('adaptive counters fit width $width at scale $scale',
+          (tester) async {
+        GoogleFonts.config.allowRuntimeFetching = false;
+        tester.view.physicalSize = Size(width, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final destinations = <int>[];
+        final database = FakeFirebaseFirestore();
+        await database
+            .collection('accessRequests')
+            .doc('fictional')
+            .set({'status': 'pendiente'});
+        await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
+          builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!),
+          home: Scaffold(
+              body: AdminDashboardScreen(
+                  user: adminUser('Persona de prueba'),
+                  firestore: database,
+                  onNavigate: destinations.add)),
+        ));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final cards = <Rect>[];
+        for (final label in [
+          'Solicitudes',
+          'Proyectos',
+          'Reportes',
+          'Actividades'
+        ]) {
+          final text = find.text(label).first;
+          await tester.ensureVisible(text);
+          await tester.pumpAndSettle();
+          final card =
+              find.ancestor(of: text, matching: find.byType(Card)).first;
+          final labelRect = tester.getRect(text);
+          final cardRect = tester.getRect(card);
+          expect(cardRect.inflate(0.1).contains(labelRect.topLeft), true);
+          expect(cardRect.inflate(0.1).contains(labelRect.bottomRight), true);
+          cards.add(cardRect);
+          await tester.tap(text);
+        }
+        expect(cards[0].height, cards[1].height);
+        expect(cards[2].height, cards[3].height);
+        expect(destinations, [3, 1, 2, 5]);
+        // Stream updates preserve layout and display current counts.
+        await database
+            .collection('accessRequests')
+            .doc('fictional-2')
+            .set({'status': 'pendiente'});
+        await tester.pumpAndSettle();
+        expect(find.text('2'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('greets administrator by first name and preserves panel content',
       (tester) async {
     final destinations = <int>[];

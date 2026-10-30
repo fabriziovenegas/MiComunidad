@@ -1,3 +1,4 @@
+import 'limited_text_form_field.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import '../services/pending_send.dart';
@@ -38,7 +39,8 @@ class _ContentCommentComposerState extends State<ContentCommentComposer> {
         children: [
           Row(children: [
             Expanded(
-              child: TextField(
+              child: LimitedTextFormField(
+                characterLimit: 1000,
                 controller: _controller,
                 enabled: widget.enabled && !_saving,
                 minLines: 1,
@@ -78,7 +80,7 @@ class _ContentCommentComposerState extends State<ContentCommentComposer> {
   Future<void> _send() async {
     if (_saving || !widget.enabled) return;
     final text = _controller.text.trim();
-    if (text.isEmpty || text.length > 1000) {
+    if (text.isEmpty || _controller.text.length > 1000) {
       setState(() => _error = 'Escribe entre 1 y 1000 caracteres.');
       return;
     }

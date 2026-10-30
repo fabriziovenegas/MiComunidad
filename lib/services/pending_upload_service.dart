@@ -19,6 +19,13 @@ class UploadSendResult extends PendingSendResult {
   final Object? error;
 }
 
+class PhotoBatchResult {
+  const PhotoBatchResult(this.results, this.failures);
+  final List<UploadSendResult> results;
+  // Only files that could not be saved locally need selecting/retrying again.
+  final Map<SelectedUpload, String> failures;
+}
+
 class PendingUploadService with WidgetsBindingObserver {
   PendingUploadService({
     AttachmentDelivery? delivery,
@@ -173,6 +180,49 @@ class PendingUploadService with WidgetsBindingObserver {
     return _attempt(item);
   }
 
+  Future<PhotoBatchResult> sendPhotos({
+    required String collection,
+    required String documentId,
+    required List<SelectedUpload> photos,
+    String? expectedUserId,
+  }) async {
+    final userId = _currentUserId();
+    if (userId == null) {
+      throw const FileUploadException(
+          'Debes iniciar sesión para subir archivos.');
+    }
+    if (expectedUserId != null && expectedUserId != userId) {
+      throw StateError('La cuenta del envío cambió.');
+    }
+    final items = <PendingAttachment>[];
+    final failures = <SelectedUpload, String>{};
+    // Persist the whole selection before waiting on any slow network request.
+    // Each object keeps its existing stable ID and independent retry state.
+    for (final photo in List<SelectedUpload>.of(photos)) {
+      try {
+        if (_currentUserId() != userId) {
+          throw StateError('La cuenta del envío cambió.');
+        }
+        await FileService.validateSelectedFormat(photo);
+        items.add(await _persist(
+            collection: collection,
+            documentId: documentId,
+            kind: 'photos',
+            selected: photo,
+            userId: userId));
+      } catch (error) {
+        failures[photo] = error is FileUploadException
+            ? error.message
+            : 'No se pudo guardar la fotografía en este teléfono.';
+      }
+    }
+    final results = <UploadSendResult>[];
+    for (final item in items) {
+      results.add(await _attempt(item));
+    }
+    return PhotoBatchResult(results, failures);
+  }
+
   Future<bool> _offline() async {
     try {
       return await _isOffline()
@@ -302,7 +352,9 @@ class PendingUploadService with WidgetsBindingObserver {
   }) async {
     if (!const ['projects', 'reports', 'events'].contains(collection) ||
         !RegExp(r'^[a-zA-Z0-9_-]{1,128}$').hasMatch(documentId) ||
-        !(kind == 'photos' || (collection == 'events' && kind == 'minutes'))) {
+        !(kind == 'photos' ||
+            (const ['events', 'projects'].contains(collection) &&
+                kind == 'minutes'))) {
       throw const FileUploadException('El destino del archivo no es válido.');
     }
     final extension = selected.name.split('.').last.toLowerCase();

@@ -250,6 +250,54 @@ test('closed backend permissions, schemas and attachment ownership via direct AP
     allowed(await upload('events/e/minutes/minutes_minutes.pdf', 'neighbor', {mime: 'application/pdf', bytes: pdf}));
     allowed(await callable('registerContentAttachment', registration({collection: 'events', documentId: 'e', kind: 'minutes', attachmentId: 'minutes', storagePath: 'events/e/minutes/minutes_minutes.pdf', name: 'minutes.pdf'}), 'neighbor'));
   });
+  await t.test('project documents enforce membership, ownership, formats, archival and separate photo paths', async () => {
+    const path = 'projects/p/minutes/projectdoc_budget.pdf';
+    const data = registration({kind: 'minutes', attachmentId: 'projectdoc', storagePath: path, name: 'budget.pdf'});
+    const target = {collection: 'projects', documentId: 'p', kind: 'minutes', attachmentId: 'projectdoc'};
+    for (const actor of [null, 'anonymous', 'pending', 'former']) {
+      denied(await upload(path, actor, {mime: 'application/pdf', bytes: pdf}));
+      denied(await callable('registerContentAttachment', data, actor));
+    }
+    denied(await upload('projects/archived/minutes/archived_budget.pdf', 'neighbor', {mime: 'application/pdf', bytes: pdf}));
+    denied(await upload('projects/missing/minutes/missing_budget.pdf', 'neighbor', {mime: 'application/pdf', bytes: pdf}));
+    denied(await upload('projects/p/minutes/large_budget.pdf', 'neighbor', {mime: 'application/pdf', bytes: Buffer.alloc(5 * 1024 * 1024 + 1)}));
+    allowed(await upload(path, 'neighbor', {mime: 'application/pdf', bytes: pdf}));
+    denied(await callable('registerContentAttachment', {...data, storagePath: 'events/e/minutes/projectdoc_budget.pdf'}, 'neighbor'));
+    denied(await callable('registerContentAttachment', {...data, name: 'budget.jpg'}, 'neighbor'));
+    for (const actor of ['neighbor', 'admin']) {
+      denied(await write('projects/p/minutes/forged', {url: `gs://${bucketName}/${path}`, uploadedBy: 'neighbor'}, actor, {times: ['createdAt']}));
+    }
+    allowed(await callable('registerContentAttachment', data, 'neighbor'));
+    allowed(await callable('registerContentAttachment', data, 'neighbor'));
+    const record = await db.doc('projects/p/minutes/projectdoc').get();
+    assert.equal(record.data().storagePath, path);
+    for (const actor of [null, 'anonymous', 'pending', 'former']) {
+      denied(await read('projects/p/minutes/projectdoc', actor));
+      denied(await fileRequest(path, actor));
+    }
+    allowed(await read('projects/p/minutes/projectdoc', 'other'));
+    allowed(await fileRequest(path, 'other'));
+    denied(await remove('projects/p/minutes/projectdoc', 'neighbor'));
+    denied(await callable('deleteContentAttachment', target, 'other'));
+    await db.doc('projects/p').update({isTrashed: true});
+    denied(await read('projects/p/minutes/projectdoc', 'neighbor'));
+    denied(await fileRequest(path, 'neighbor'));
+    allowed(await read('projects/p/minutes/projectdoc', 'admin'));
+    allowed(await fileRequest(path, 'admin'));
+    denied(await callable('deleteContentAttachment', target, 'neighbor'));
+    assert.equal((await bucket.file(path).exists())[0], true);
+    allowed(await callable('deleteContentAttachment', target, 'admin'));
+    assert.equal((await bucket.file(path).exists())[0], false);
+    assert.equal((await db.doc('projects/p/minutes/projectdoc').get()).exists, false);
+    assert.equal((await bucket.file('events/e/minutes/minutes_minutes.pdf').exists())[0], true);
+    await db.doc('projects/p').update({isTrashed: false});
+    const imagePath = 'projects/p/minutes/projectimage_receipt.png';
+    allowed(await upload(imagePath, 'neighbor'));
+    allowed(await callable('registerContentAttachment', registration({kind: 'minutes', attachmentId: 'projectimage', storagePath: imagePath, name: 'receipt.png'}), 'neighbor'));
+    allowed(await callable('deleteContentAttachment', {...target, attachmentId: 'projectimage'}, 'neighbor'));
+    assert.equal((await bucket.file(imagePath).exists())[0], false);
+    denied(await callable('registerContentAttachment', {...data, collection: 'reports'}, 'neighbor'));
+  });
   await t.test('old administrator/member tokens lose access when the canonical profile changes', async () => {
     await db.doc('users/demoted').update({role: 'vecino'});
     denied(await write('projects/token-admin', projectData, 'demoted'));

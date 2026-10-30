@@ -1,3 +1,7 @@
+import '../../services/upload_connection.dart';
+import '../../widgets/project_dates_fields.dart';
+import '../../models/project_dates.dart';
+import '../../widgets/limited_text_form_field.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
@@ -21,6 +25,7 @@ class ProjectsScreen extends StatefulWidget {
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   String _filter = 'todos';
+  final Map<String, Map<String, dynamic>> _editDrafts = {};
   PendingContentService get _outbox =>
       widget.pendingContent ?? PendingContentService.instance;
 
@@ -31,21 +36,31 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     final draftId = document == null ? _outbox.newId() : null;
     PendingSendResult? result;
     final data = document?.data() ?? const <String, dynamic>{};
-    var title = data['title'] as String? ?? '';
-    var location = data['location'] as String? ?? '';
-    var description = data['description'] as String? ?? '';
-    final savedProgress = data['progress'] ?? 0;
+    final initial = {...data, ...?_editDrafts[document?.id]};
+    Map<String, dynamic>? retainedDraft;
+    var title = initial['title'] as String? ?? '';
+    var location = initial['location'] as String? ?? '';
+    var description = initial['description'] as String? ?? '';
+    final savedProgress = initial['progress'] ?? 0;
     var progress = savedProgress is num &&
             savedProgress.isFinite &&
             savedProgress == savedProgress.roundToDouble()
         ? savedProgress.toStringAsFixed(0)
         : '$savedProgress';
-    var status = data['status'] as String? ?? 'pendiente';
+    var status = initial['status'] as String? ?? 'pendiente';
+    var startDate = ProjectDates.date(initial['startDate']);
+    var endDate = ProjectDates.date(initial['expectedEndDate']);
     final action = await showDialog<String>(
         context: context,
         barrierDismissible: false,
         builder: (context) => StatefulBuilder(
             builder: (context, setDialogState) => FormSubmissionGuard(
+                slowAfter:
+                    document == null ? null : const Duration(seconds: 10),
+                errorMessage: (error) => error is FirebaseException &&
+                        error.code == 'unavailable'
+                    ? 'Necesitas conexión para guardar los cambios'
+                    : 'Hubo un problema con el envío. Tus datos se conservan.',
                 validate: () => formKey.currentState?.validate() == true,
                 onSubmit: () async {
                   final percent = ProjectProgressInputFormatter.parse(progress);
@@ -56,6 +71,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     'description': description.trim(),
                     'progress': percent,
                     'status': status,
+                    if (startDate != null)
+                      'startDate': Timestamp.fromDate(startDate!),
+                    if (endDate != null)
+                      'expectedEndDate': Timestamp.fromDate(endDate!),
                   };
                   if (document == null) {
                     result = await _outbox.submit(
@@ -64,8 +83,25 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         expectedUserId: widget.user.userId,
                         fields: payload);
                   } else {
-                    await CommunityService.instance
-                        .updateProject(document.id, payload);
+                    if (await UploadConnection.isOffline()) {
+                      throw FirebaseException(
+                          plugin: 'cloud_firestore', code: 'unavailable');
+                    }
+                    await CommunityService.instance.updateProject(document.id, {
+                      ...payload,
+                      if (startDate == null && data.containsKey('startDate'))
+                        'startDate': FieldValue.delete(),
+                      if (endDate == null &&
+                          data.containsKey('expectedEndDate'))
+                        'expectedEndDate': FieldValue.delete(),
+                    });
+                    if (retainedDraft != null &&
+                        identical(_editDrafts[document.id], retainedDraft)) {
+                      _editDrafts.remove(document.id);
+                    }
+                    if (!context.mounted && mounted) {
+                      showSuccessNotice(this.context, 'Cambios guardados');
+                    }
                   }
                 },
                 onSubmitted: (context) => Navigator.pop(context, 'save'),
@@ -79,7 +115,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                 child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 160,
                                           enabled: !saving,
                                           initialValue: title,
                                           onChanged: (value) => title = value,
@@ -90,7 +127,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                               ? 'El nombre es obligatorio.'
                                               : null),
                                       const SizedBox(height: 10),
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 300,
                                           enabled: !saving,
                                           initialValue: location,
                                           onChanged: (value) =>
@@ -98,7 +136,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                           decoration: const InputDecoration(
                                               labelText: 'Ubicación')),
                                       const SizedBox(height: 10),
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 4000,
                                           enabled: !saving,
                                           initialValue: description,
                                           onChanged: (value) =>
@@ -150,6 +189,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                               ? null
                                               : (value) => setDialogState(
                                                   () => status = value!)),
+                                      const SizedBox(height: 10),
+                                      ProjectDatesFields(
+                                          start: startDate,
+                                          end: endDate,
+                                          enabled: !saving,
+                                          onChanged: (start, end) =>
+                                              setDialogState(() {
+                                                startDate = start;
+                                                endDate = end;
+                                              })),
                                       const SizedBox(height: 10),
                                       const Align(
                                         alignment: Alignment.centerLeft,
@@ -224,16 +273,43 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                     ]))),
                         actions: [
                           TextButton(
-                            onPressed: saving
+                            onPressed: saving &&
+                                    !FormSubmissionGuard.isTakingLong(context)
                                 ? null
                                 : () => Navigator.pop(context, 'cancel'),
-                            child: const Text('Cancelar'),
+                            child: Text(saving &&
+                                    FormSubmissionGuard.isTakingLong(context)
+                                ? 'Cerrar'
+                                : 'Cancelar'),
                           ),
                           FilledButton(
                             onPressed: saving ? null : submit,
-                            child: Text(saving ? 'Guardando…' : 'Guardar'),
+                            child: Text(saving
+                                ? (FormSubmissionGuard.isTakingLong(context)
+                                    ? 'Esperando confirmación…'
+                                    : 'Guardando…')
+                                : 'Guardar'),
                           ),
                         ]))));
+    if (document != null) {
+      if (action == 'save' || action == 'trash') {
+        _editDrafts.remove(document.id);
+      } else {
+        // Keep the edit in this screen even if a slow request is still awaiting acknowledgement.
+        retainedDraft = {
+          'title': title,
+          'location': location,
+          'description': description,
+          'progress': progress,
+          'status': status,
+          'startDate':
+              startDate == null ? null : Timestamp.fromDate(startDate!),
+          'expectedEndDate':
+              endDate == null ? null : Timestamp.fromDate(endDate!),
+        };
+        _editDrafts[document.id] = retainedDraft;
+      }
+    }
     if (action == 'trash' && document != null) {
       try {
         await CommunityService.instance.moveProjectToTrash(
@@ -269,7 +345,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
             context,
             result?.state == PendingSendState.queued
                 ? 'Proyecto guardado en este dispositivo. Se enviará cuando haya conexión.'
-                : 'Proyecto guardado.');
+                : document != null
+                    ? 'Cambios guardados'
+                    : 'Proyecto guardado.');
       }
     }
   }

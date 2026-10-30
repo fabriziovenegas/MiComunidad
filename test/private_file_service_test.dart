@@ -5,6 +5,7 @@ void main() {
   const bucket = 'demo-private-files.appspot.com';
   for (final path in [
     'projects/p/photos/upload_photo.png',
+    'projects/p/minutes/document.pdf',
     'reports/r/photos/report_photo.jpg',
     'events/e/photos/photo.webp',
     'events/e/minutes/minutes.pdf',
@@ -33,7 +34,7 @@ void main() {
     'https://attacker@firebasestorage.googleapis.com/v0/b/$bucket/o/events%2Fe%2Fminutes%2Fa.pdf',
     'https://firebasestorage.googleapis.com:444/v0/b/$bucket/o/events%2Fe%2Fminutes%2Fa.pdf',
     'gs://$bucket/unknown/e/photos/a.png',
-    'gs://$bucket/projects/p/minutes/a.pdf',
+    'gs://$bucket/reports/r/minutes/a.pdf',
   ]) {
     test('external, wrong-bucket or unexpected reference is blocked: $url', () {
       expect(() => PrivateFileService.objectPath(url, bucket),

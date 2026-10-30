@@ -70,6 +70,12 @@ service firebase.storage {
       allow delete: if admin();
       allow update: if false;
     }
+    match /projects/{projectId}/minutes/{fileName} {
+      allow read: if admin() || (approved() && activeProject(projectId));
+      allow create: if resource == null && approved() && activeProject(projectId) && document() && ownedUpload(fileName);
+      allow delete: if admin();
+      allow update: if false;
+    }
     match /reports/{reportId}/photos/{fileName} {
       allow read: if admin() || (approved() && (
         reportVisibleToMember(reportId)

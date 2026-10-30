@@ -10,15 +10,18 @@ import 'agenda_presentation.dart';
 import 'image_gallery_screen.dart';
 import 'upload_error_notice.dart';
 
-/// The two existing event subcollections remain separate, regardless of MIME type.
+/// Photo and document subcollections remain separate, regardless of MIME type.
 class AgendaAttachments extends StatelessWidget {
   const AgendaAttachments(
       {super.key,
       required this.eventId,
       required this.kind,
       required this.user,
-      required this.readOnly})
-      : assert(kind == 'photos' || kind == 'minutes');
+      required this.readOnly,
+      this.collection = 'events'})
+      : assert(kind == 'photos' || kind == 'minutes'),
+        assert(collection == 'events' || collection == 'projects');
+  final String collection;
   final String eventId;
   final String kind;
   final AppUser user;
@@ -68,7 +71,7 @@ class AgendaAttachments extends StatelessWidget {
     if (confirmed != true) return;
     try {
       await CommunityService.instance.deleteAttachment(
-          collection: 'events',
+          collection: collection,
           documentId: eventId,
           kind: kind,
           attachmentId: id,
@@ -85,7 +88,8 @@ class AgendaAttachments extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: CommunityService.instance.attachments('events', eventId, kind),
+        stream:
+            CommunityService.instance.attachments(collection, eventId, kind),
         builder: (context, snapshot) {
           final documents = kind == 'minutes';
           if (snapshot.hasError) {
@@ -107,9 +111,11 @@ class AgendaAttachments extends StatelessWidget {
           final docs = snapshot.data!.docs;
           if (docs.isEmpty) {
             if (documents) {
-              return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text('Aún no hay actas ni documentos.'));
+              return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(collection == 'projects'
+                      ? 'Aún no hay documentos del proyecto.'
+                      : 'Aún no hay documentos.'));
             }
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),

@@ -1,3 +1,7 @@
+import '../../widgets/map_point_form.dart';
+import '../../widgets/upload_error_notice.dart';
+import '../../services/map_point_writer.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -23,48 +27,31 @@ class _MapScreenState extends State<MapScreen> {
   _CommunityMapStyle _style = _CommunityMapStyle.streets;
 
   Future<void> _addPoint(BuildContext context, LatLng point) async {
-    if (!widget.user.isAdmin) return;
-    var title = '';
-    var description = '';
-    final save = await showDialog<bool>(
+    if (!widget.user.isAdmin || !widget.user.isApproved) return;
+    final ref = FirebaseFirestore.instance.collection('mapPoints').doc();
+    final writer = MapPointWriter(
+        firestore: FirebaseFirestore.instance,
+        currentUserId: () => FirebaseAuth.instance.currentUser?.uid);
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nuevo punto comunitario'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              onChanged: (value) => title = value,
-              decoration: const InputDecoration(labelText: 'Nombre'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              onChanged: (value) => description = value,
-              decoration: const InputDecoration(labelText: 'Descripción'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (dialogContext) =>
+          MapPointForm(onSave: (title, description) async {
+        await writer.save(
+            id: ref.id,
+            userId: widget.user.userId,
+            title: title,
+            description: description,
+            latitude: point.latitude,
+            longitude: point.longitude);
+        if (!context.mounted) return;
+        if (!dialogContext.mounted) {
+          showSuccessNotice(context, 'Punto guardado');
+        }
+      }),
     );
-    if (save == true && title.trim().isNotEmpty) {
-      await FirebaseFirestore.instance.collection('mapPoints').add({
-        'title': title.trim(),
-        'description': description.trim(),
-        'latitude': point.latitude,
-        'longitude': point.longitude,
-        'createdBy': widget.user.userId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    if (saved == true && context.mounted) {
+      showSuccessNotice(context, 'Punto guardado');
     }
   }
 

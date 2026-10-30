@@ -5,7 +5,10 @@ import 'package:micomunidad/widgets/form_submission_guard.dart';
 import 'package:micomunidad/widgets/upload_error_notice.dart';
 
 Future<void> openForm(WidgetTester tester, Future<void> Function() send,
-    {bool Function()? validate, ValueChanged<bool?>? closed}) async {
+    {bool Function()? validate,
+    ValueChanged<bool?>? closed,
+    Duration? slowAfter,
+    String Function(Object)? errorMessage}) async {
   await tester.pumpWidget(MaterialApp(
       home: Builder(
           builder: (context) => Scaffold(
@@ -16,6 +19,8 @@ Future<void> openForm(WidgetTester tester, Future<void> Function() send,
                         barrierDismissible: false,
                         builder: (_) => FormSubmissionGuard(
                             onSubmit: send,
+                            slowAfter: slowAfter,
+                            errorMessage: errorMessage,
                             validate: validate,
                             onSubmitted: (context) =>
                                 Navigator.pop(context, true),
@@ -26,7 +31,9 @@ Future<void> openForm(WidgetTester tester, Future<void> Function() send,
                                         enabled: !saving),
                                     actions: [
                                       TextButton(
-                                          onPressed: saving
+                                          onPressed: saving &&
+                                                  !FormSubmissionGuard
+                                                      .isTakingLong(context)
                                               ? null
                                               : () =>
                                                   Navigator.pop(context, false),
@@ -105,6 +112,79 @@ void main() {
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.byKey(const ValueKey('upload-error-notice')), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+      'slow save warns in amber, allows closing, never resubmits or claims success',
+      (tester) async {
+    final ack = Completer<void>();
+    var calls = 0;
+    await openForm(tester, () {
+      calls++;
+      return ack.future;
+    }, slowAfter: const Duration(seconds: 10));
+    final submit =
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed!;
+    submit();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+    final notice = find.byKey(const ValueKey('save-warning-notice'));
+    expect(tester.widget<Material>(notice).color, const Color(0xFFFFE6A7));
+    expect(find.text('El guardado está tardando. Comprueba tu conexión'),
+        findsOneWidget);
+    expect(find.text('Demo draft'), findsOneWidget);
+    expect(tester.widget<TextFormField>(find.byType(TextFormField)).enabled,
+        false);
+    submit();
+    expect(calls, 1);
+    expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Cancelar'))
+            .onPressed,
+        isNotNull);
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    ack.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('offline refusal retains draft and enables retry without success',
+      (tester) async {
+    var calls = 0;
+    await openForm(tester, () async {
+      calls++;
+      throw StateError('offline');
+    },
+        slowAfter: const Duration(seconds: 10),
+        errorMessage: (_) => 'Necesitas conexión para guardar los cambios');
+    await tester.enterText(
+        find.byType(TextFormField), 'Unsaved fictional edit');
+    await tester.tap(find.text('Guardar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Necesitas conexión para guardar los cambios'),
+        findsOneWidget);
+    expect(find.text('Unsaved fictional edit'), findsOneWidget);
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNotNull);
+    await tester.pump(const Duration(seconds: 10));
+    expect(find.byKey(const ValueKey('save-warning-notice')), findsNothing);
+    expect(calls, 1);
+  });
+  testWidgets('slow save closes only after acknowledgement and removes warning',
+      (tester) async {
+    final ack = Completer<void>();
+    await openForm(tester, () => ack.future,
+        slowAfter: const Duration(seconds: 10));
+    await tester.tap(find.text('Guardar'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('save-warning-notice')), findsOneWidget);
+    ack.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byKey(const ValueKey('save-warning-notice')), findsNothing);
   });
   testWidgets(
       'invalid input does not submit, close the form or show a network error',

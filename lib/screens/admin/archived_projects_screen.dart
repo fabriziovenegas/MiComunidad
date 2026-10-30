@@ -269,7 +269,7 @@ class _PermanentDeleteDialogState extends State<_PermanentDeleteDialog> {
           const SizedBox(height: 12),
           Text(
             confirmed
-                ? 'Se eliminarán el proyecto, sus fotos y los comentarios asociados. Esta acción no se puede deshacer.'
+                ? 'Se eliminarán el proyecto, sus fotos, documentos y comentarios asociados. Esta acción no se puede deshacer.'
                 : 'La palabra debe coincidir exactamente.',
             style: TextStyle(
               color: confirmed

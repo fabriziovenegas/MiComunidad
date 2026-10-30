@@ -18,8 +18,21 @@ service cloud.firestore {
         && data.authorName == profile().nombre && text(data.authorName, 160, true)
         && text(data.text, 1000, true) && data.createdAt == request.time;
     }
+    function validCommentEdit() {
+      return approved() && owns('authorId')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt'])
+        && text(request.resource.data.text, 1000, true)
+        && request.resource.data.updatedAt == request.time;
+    }
+    function validProjectDates(data) {
+      let start = data.get('startDate', null);
+      let end = data.get('expectedEndDate', null);
+      return (start == null || start is timestamp)
+        && (end == null || end is timestamp)
+        && (start == null || end == null || start <= end);
+    }
     function validProjectContent(data) {
-      return text(data.title, 160, true) && text(data.description, 4000, true)
+      return validProjectDates(data) && text(data.title, 160, true) && text(data.description, 4000, true)
         && text(data.location, 300, false)
         && data.progress is number && data.progress >= 0 && data.progress <= 100
         && data.progress == int(data.progress)
@@ -32,7 +45,7 @@ service cloud.firestore {
     function validProjectUpdate() {
       let data = request.resource.data;
       let changed = data.diff(resource.data).affectedKeys();
-      return (!changed.hasAny(['title']) || text(data.title, 160, true))
+      return validProjectDates(data) && (!changed.hasAny(['title']) || text(data.title, 160, true))
         && (!changed.hasAny(['description']) || text(data.description, 4000, true))
         && (!changed.hasAny(['location']) || text(data.location, 300, false))
         && (!changed.hasAny(['progress']) || (data.progress is number && data.progress >= 0 && data.progress <= 100 && data.progress == int(data.progress)))
@@ -175,13 +188,13 @@ service cloud.firestore {
       allow read: if admin() || (approved() && activeProject(resource.data));
       allow create: if admin()
         && request.resource.data.keys().hasAll(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'createdBy', 'createdAt', 'updatedAt'])
-        && request.resource.data.keys().hasOnly(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'createdBy', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'createdBy', 'createdAt', 'updatedAt', 'startDate', 'expectedEndDate'])
         && validProjectContent(request.resource.data)
         && request.resource.data.isTrashed == false
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
       allow update: if admin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'trashedAt', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'location', 'progress', 'status', 'isTrashed', 'trashedAt', 'updatedAt', 'startDate', 'expectedEndDate'])
         && validProjectUpdate()
         && request.resource.data.isTrashed is bool
         && ((request.resource.data.isTrashed == true && request.resource.data.trashedAt is timestamp)
@@ -195,7 +208,7 @@ service cloud.firestore {
         allow create: if approved()
           && activeProjectById(projectId)
           && validComment();
-        allow update: if false;
+        allow update: if validCommentEdit() && activeProjectById(projectId);
         allow delete: if admin()
           || (approved() && activeProjectById(projectId) && owns('authorId'));
       }
@@ -204,6 +217,11 @@ service cloud.firestore {
         // Registration verifies the actual Storage object in a callable.
         allow create: if false;
         allow update: if false;
+        allow delete: if admin();
+      }
+      match /minutes/{fileId} {
+        allow read: if admin() || (approved() && activeProjectById(projectId));
+        allow create, update: if false;
         allow delete: if admin();
       }
     }
@@ -241,7 +259,7 @@ service cloud.firestore {
           && reportExists(reportId)
           && reportAcceptsComments(reportById(reportId))
           && validComment();
-        allow update: if false;
+        allow update: if validCommentEdit() && reportExists(reportId) && reportAcceptsComments(reportById(reportId));
         allow delete: if admin() || (approved() && reportExists(reportId)
           && reportAcceptsComments(reportById(reportId)) && owns('authorId'));
       }
@@ -271,7 +289,8 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if approved() && (admin() || eventExists(eventId));
         allow create: if approved() && eventExists(eventId) && validComment();
-        allow update: if false;
+        allow update: if validCommentEdit() && eventExists(eventId)
+          && get(/databases/$(database)/documents/events/$(eventId)).data.get('deletionInProgress', false) != true;
         allow delete: if admin() || (approved() && eventExists(eventId) && owns('authorId'));
       }
       match /photos/{fileId} {

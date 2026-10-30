@@ -164,6 +164,9 @@ void main() {
 
   for (final scenario in [
     ('projects', 'photos', 'fictional.png'),
+    ('projects', 'minutes', 'fictional.pdf'),
+    ('projects', 'minutes', 'fictional.png'),
+    ('projects', 'minutes', 'fictional.webp'),
     ('reports', 'photos', 'fictional.jpg'),
     ('events', 'photos', 'fictional.jpeg'),
     ('events', 'minutes', 'minutes.pdf'),

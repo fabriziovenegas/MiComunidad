@@ -42,7 +42,7 @@ function createContentAttachments({firestore: db, storage, HttpsError, FieldValu
     if (!data || typeof data !== "object" || Array.isArray(data) ||
         Object.keys(data).length !== keys.length || Object.keys(data).some((key) => !keys.includes(key)) ||
         !["projects", "reports", "events"].includes(data.collection) || !id(data.documentId) ||
-        !id(data.attachmentId) || !["photos", ...(data.collection === "events" ? ["minutes"] : [])].includes(data.kind)) {
+        !id(data.attachmentId) || !["photos", ...(["events", "projects"].includes(data.collection) ? ["minutes"] : [])].includes(data.kind)) {
       throw new HttpsError("invalid-argument", "El adjunto no es válido.");
     }
     return data;

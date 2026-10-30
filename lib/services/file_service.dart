@@ -104,7 +104,11 @@ class FileService {
       withData: false,
     );
     if (result == null) return null;
-    final selected = SelectedUpload(result.files.single);
+    return preparePhoto(result.files.single);
+  }
+
+  static Future<SelectedUpload> preparePhoto(PlatformFile file) async {
+    final selected = SelectedUpload(file);
     if (!selectableImageExtensions.contains(extensionOf(selected.name))) {
       throw const FileUploadException(
           'Selecciona una imagen JPG, JPEG, PNG, WEBP, HEIC o HEIF.');

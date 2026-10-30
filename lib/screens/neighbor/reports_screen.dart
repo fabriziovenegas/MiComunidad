@@ -1,3 +1,4 @@
+import '../../widgets/limited_text_form_field.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -10,8 +11,9 @@ import '../../widgets/report_detail_sheet.dart';
 import '../../widgets/report_edit_dialog.dart';
 import '../../widgets/report_status_dialog.dart';
 import '../../widgets/report_presentation.dart';
+import '../../widgets/pending_report_review_panel.dart';
 import '../../widgets/report_category.dart';
-import '../../widgets/upload_picker.dart';
+import '../../widgets/photo_source_menu.dart';
 import '../../widgets/current_report_author_name.dart';
 import '../../utils/text_encoding.dart';
 import '../../services/pending_report_service.dart';
@@ -56,12 +58,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
     var category = 'obras';
     var priority = 'media';
     SelectedUpload? image;
+    var selectingImage = false;
     final save = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (context) => StatefulBuilder(
             builder: (context, setDialogState) => FormSubmissionGuard(
-                validate: () => formKey.currentState?.validate() == true,
+                validate: () =>
+                    !selectingImage && formKey.currentState?.validate() == true,
                 onSubmit: () async {
                   result = await _outbox.submit(
                       id: reportId,
@@ -85,7 +89,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                 child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 160,
                                           enabled: !saving,
                                           onChanged: (value) => title = value,
                                           decoration: const InputDecoration(
@@ -95,7 +100,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               ? 'El título es obligatorio.'
                                               : null),
                                       const SizedBox(height: 10),
-                                      TextFormField(
+                                      LimitedTextFormField(
+                                          characterLimit: 4000,
                                           enabled: !saving,
                                           onChanged: (value) =>
                                               description = value,
@@ -108,7 +114,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               ? 'La descripción es obligatoria.'
                                               : null),
                                       const SizedBox(height: 10),
-                                      TextField(
+                                      LimitedTextFormField(
+                                          characterLimit: 300,
                                           enabled: !saving,
                                           onChanged: (value) =>
                                               location = value,
@@ -157,17 +164,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                                   () => priority = value!)),
                                       const SizedBox(height: 12),
                                       OutlinedButton.icon(
-                                          onPressed: saving
+                                          onPressed: saving || selectingImage
                                               ? null
                                               : () async {
-                                                  final selected =
-                                                      await pickUploadWithFeedback(
-                                                          context,
-                                                          FileService
-                                                              .pickImage);
-                                                  if (selected != null) {
-                                                    setDialogState(
-                                                        () => image = selected);
+                                                  setDialogState(() =>
+                                                      selectingImage = true);
+                                                  try {
+                                                    final selection =
+                                                        await pickPhotosWithMenu(
+                                                            context,
+                                                            multiple: false);
+                                                    if (context.mounted &&
+                                                        selection.photos
+                                                            .isNotEmpty) {
+                                                      setDialogState(() =>
+                                                          image = selection
+                                                              .photos.single);
+                                                    }
+                                                  } finally {
+                                                    if (context.mounted) {
+                                                      setDialogState(() =>
+                                                          selectingImage =
+                                                              false);
+                                                    }
                                                   }
                                                 },
                                           icon: const Icon(
@@ -219,7 +238,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
         builder: (dialogContext) => StatefulBuilder(
           builder: (context, setDialogState) => AlertDialog(
             title: const Text('Rechazar reporte'),
-            content: TextField(
+            content: LimitedTextFormField(
+              characterLimit: 1000,
               maxLines: 3,
               onChanged: (value) => setDialogState(() => inputReason = value),
               decoration: const InputDecoration(
@@ -233,12 +253,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 child: const Text('Cancelar'),
               ),
               FilledButton(
-                onPressed: inputReason.trim().isEmpty
-                    ? null
-                    : () => Navigator.pop(
-                          dialogContext,
-                          inputReason.trim(),
-                        ),
+                onPressed:
+                    inputReason.trim().isEmpty || inputReason.length > 1000
+                        ? null
+                        : () => Navigator.pop(
+                              dialogContext,
+                              inputReason.trim(),
+                            ),
                 child: const Text('Rechazar'),
               ),
             ],
@@ -657,57 +678,30 @@ class _PendingReports extends StatelessWidget {
   ) onModerate;
 
   @override
-  Widget build(BuildContext context) => Card(
-        color: Theme.of(context).colorScheme.secondaryContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Reportes por aprobar (${reports.length})',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              ...reports.map((report) {
-                final data = report.data();
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  onTap: () => showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    showDragHandle: true,
-                    backgroundColor: ReportVisuals.sheetBackground,
-                    shape: const RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.vertical(top: Radius.circular(28))),
-                    builder: (_) => ReportDetailSheet(
-                      reportId: report.id,
-                      data: data,
-                      user: user,
-                    ),
-                  ),
-                  title: Text(readableText(data['title'])),
-                  subtitle: Text(
-                    readableText(data['description']),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Wrap(children: [
-                    IconButton(
-                      tooltip: 'Rechazar',
-                      onPressed: () => onModerate(report, false),
-                      icon: const Icon(Icons.close),
-                    ),
-                    IconButton(
-                      tooltip: 'Aprobar',
-                      onPressed: () => onModerate(report, true),
-                      icon: const Icon(Icons.check_circle_outline),
-                    ),
-                  ]),
-                );
-              }),
-            ],
-          ),
-        ),
+  Widget build(BuildContext context) => PendingReportReviewPanel(
+        children: reports.map((report) {
+          final data = report.data();
+          return PendingReportReviewRow(
+            title: readableText(data['title']),
+            description: readableText(data['description']),
+            onOpen: () => showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              showDragHandle: true,
+              backgroundColor: ReportVisuals.sheetBackground,
+              shape: const RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(28))),
+              builder: (_) => ReportDetailSheet(
+                reportId: report.id,
+                data: data,
+                user: user,
+              ),
+            ),
+            onReject: () => onModerate(report, false),
+            onApprove: () => onModerate(report, true),
+          );
+        }).toList(),
       );
 }
 
