@@ -1,3 +1,4 @@
+import 'attachment_information.dart';
 import 'comment_edit_dialog.dart';
 import 'content_comment_tile.dart';
 import 'private_storage_image.dart';
@@ -597,6 +598,12 @@ class _Attachments extends StatelessWidget {
                       Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => ImageGalleryScreen(
                           urls: imageUrls,
+                          information: {
+                            for (final doc in imageDocuments)
+                              (doc.data()['url'] as String? ?? ''):
+                                  attachmentInformationBuilder(collection,
+                                      documentId, kind, doc.id, doc.data())
+                          },
                           initialIndex: galleryIndex < 0 ? 0 : galleryIndex,
                         ),
                       ));

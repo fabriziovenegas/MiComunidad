@@ -1,3 +1,4 @@
+import 'attachment_information.dart';
 import 'private_storage_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -104,6 +105,12 @@ class _ReportPhotos extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => ImageGalleryScreen(
                       urls: urls,
+                      information: {
+                        for (final doc in snapshot.data!.docs)
+                          (doc.data()['url'] as String? ?? ''):
+                              attachmentInformationBuilder('reports', reportId,
+                                  'photos', doc.id, doc.data())
+                      },
                       initialIndex: index,
                     ),
                   ),

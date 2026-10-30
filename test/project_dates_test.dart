@@ -78,7 +78,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(from, isNull);
     expect(form.currentState!.validate(), true);
-    await tester.tap(find.byTooltip('Quitar Finalización prevista'));
+    await tester.tap(find.byTooltip('Quitar Fin previsto'));
     await tester.pumpAndSettle();
     expect(to, isNull);
     expect(form.currentState!.validate(), true);

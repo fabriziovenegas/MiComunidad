@@ -1,3 +1,4 @@
+const {createAttachmentUploaderNameLookup} = require("./attachment_uploader_name");
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
@@ -339,3 +340,7 @@ exports.updateOwnProfile = onCall({region}, async (request) => {
   }
   return profileIdentity().updateOwnProfile(request.auth.uid, request.data || {});
 });
+
+exports.getAttachmentUploaderName = onCall({region}, (request) => createAttachmentUploaderNameLookup({
+  firestore: getFirestore(), HttpsError,
+})(request));

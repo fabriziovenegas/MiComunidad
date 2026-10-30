@@ -219,11 +219,12 @@ class AgendaDocumentTile extends StatelessWidget {
       required this.name,
       required this.isPdf,
       required this.onOpen,
-      this.onDelete});
+      this.onDelete,
+      this.onInfo});
   final String name;
   final bool isPdf;
   final VoidCallback onOpen;
-  final VoidCallback? onDelete;
+  final VoidCallback? onDelete, onInfo;
   @override
   Widget build(BuildContext context) {
     final filename = name.trim().isEmpty
@@ -251,6 +252,11 @@ class AgendaDocumentTile extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyLarge))),
+            if (onInfo != null)
+              IconButton(
+                  tooltip: 'Información del archivo',
+                  onPressed: onInfo,
+                  icon: const Icon(Icons.info_outline)),
             if (onDelete != null) ...[
               const SizedBox(width: 8),
               IconButton.filledTonal(

@@ -1,3 +1,4 @@
+import 'attachment_information.dart';
 import 'private_storage_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -32,7 +33,7 @@ class AgendaAttachments extends StatelessWidget {
       readableText(data['name']).toLowerCase().endsWith('.pdf');
 
   Future<void> _open(BuildContext context, Map<String, dynamic> data,
-      List<String> imageUrls) async {
+      List<String> imageUrls, Map<String, WidgetBuilder> information) async {
     final url = readableText(data['url']).trim();
     try {
       if (url.isEmpty) throw StateError('Missing attachment URL');
@@ -42,8 +43,10 @@ class AgendaAttachments extends StatelessWidget {
         final index = imageUrls.indexOf(url);
         if (index < 0 || !context.mounted) return;
         await Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) =>
-                ImageGalleryScreen(urls: imageUrls, initialIndex: index)));
+            builder: (_) => ImageGalleryScreen(
+                urls: imageUrls,
+                initialIndex: index,
+                information: information)));
       }
     } catch (_) {
       if (context.mounted) {
@@ -135,6 +138,12 @@ class AgendaAttachments extends StatelessWidget {
               .map((doc) => readableText(doc.data()['url']).trim())
               .where((url) => url.isNotEmpty)
               .toList();
+          final information = <String, WidgetBuilder>{
+            for (final doc in docs)
+              readableText(doc.data()['url']).trim():
+                  attachmentInformationBuilder(
+                      collection, eventId, kind, doc.id, doc.data()),
+          };
           bool canDelete(Map<String, dynamic> data) =>
               !readOnly && (user.isAdmin || data['uploadedBy'] == user.userId);
           if (documents) {
@@ -144,7 +153,12 @@ class AgendaAttachments extends StatelessWidget {
                 AgendaDocumentTile(
                     name: readableText(docs[i].data()['name']),
                     isPdf: _isPdf(docs[i].data()),
-                    onOpen: () => _open(context, docs[i].data(), urls),
+                    onInfo: () => showDialog<void>(
+                        context: context,
+                        builder: information[
+                            readableText(docs[i].data()['url']).trim()]!),
+                    onOpen: () =>
+                        _open(context, docs[i].data(), urls, information),
                     onDelete: canDelete(docs[i].data())
                         ? () => _delete(context, docs[i].id, docs[i].data())
                         : null),
@@ -168,7 +182,8 @@ class AgendaAttachments extends StatelessWidget {
                         child: Stack(children: [
                           Positioned.fill(
                               child: InkWell(
-                                  onTap: () => _open(context, data, urls),
+                                  onTap: () =>
+                                      _open(context, data, urls, information),
                                   child: ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
                                       child: PrivateStorageImage(

@@ -41,7 +41,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     var title = initial['title'] as String? ?? '';
     var location = initial['location'] as String? ?? '';
     var description = initial['description'] as String? ?? '';
-    final savedProgress = initial['progress'] ?? 0;
+    final savedProgress = document == null ? '' : initial['progress'] ?? 0;
     var progress = savedProgress is num &&
             savedProgress.isFinite &&
             savedProgress == savedProgress.roundToDouble()
@@ -63,7 +63,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     : 'Hubo un problema con el envío. Tus datos se conservan.',
                 validate: () => formKey.currentState?.validate() == true,
                 onSubmit: () async {
-                  final percent = ProjectProgressInputFormatter.parse(progress);
+                  final percent = document == null && progress.isEmpty
+                      ? 0
+                      : ProjectProgressInputFormatter.parse(progress);
                   if (percent == null) throw StateError('Avance no válido.');
                   final payload = <String, dynamic>{
                     'title': title.trim(),
@@ -162,15 +164,17 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                           inputFormatters: [
                                             ProjectProgressInputFormatter()
                                           ],
-                                          validator:
-                                              ProjectProgressInputFormatter
-                                                  .validate,
+                                          validator: (value) => document ==
+                                                      null &&
+                                                  (value ?? '').isEmpty
+                                              ? null
+                                              : ProjectProgressInputFormatter
+                                                  .validate(value),
                                           autovalidateMode: AutovalidateMode
                                               .onUserInteraction,
                                           decoration: const InputDecoration(
-                                              labelText: 'Avance de 0 a 100',
-                                              helperText:
-                                                  'Solo números enteros.')),
+                                              labelText: 'Avance (%)',
+                                              hintText: '0 a 100')),
                                       const SizedBox(height: 10),
                                       DropdownButtonFormField<String>(
                                           initialValue: status,

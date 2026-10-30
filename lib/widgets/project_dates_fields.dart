@@ -89,7 +89,7 @@ class _ProjectDatesFieldsState extends State<ProjectDatesFields> {
       if (widget.start != null)
         'Inicio: ${DateFormat('dd/MM/yyyy').format(widget.start!)}',
       if (widget.end != null)
-        'Finalización prevista: ${DateFormat('dd/MM/yyyy').format(widget.end!)}',
+        'Fin previsto: ${DateFormat('dd/MM/yyyy').format(widget.end!)}',
     ];
     final invalid = widget.start != null &&
         widget.end != null &&
@@ -127,7 +127,7 @@ class _ProjectDatesFieldsState extends State<ProjectDatesFields> {
           offstage: !_expanded,
           child: Column(children: [
             field('Inicio', widget.start, true),
-            field('Finalización prevista', widget.end, false),
+            field('Fin previsto', widget.end, false),
           ])),
     ]);
   }
@@ -145,7 +145,7 @@ class ProjectDatesSummary extends StatelessWidget {
                 )),
         for (final entry in [
           ('Inicio', 'startDate'),
-          ('Fin', 'expectedEndDate')
+          ('Fin previsto', 'expectedEndDate')
         ])
           if (ProjectDates.date(data[entry.$2]) case final DateTime date)
             Padding(

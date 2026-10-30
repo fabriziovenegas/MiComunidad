@@ -6,10 +6,12 @@ class ImageGalleryScreen extends StatefulWidget {
     super.key,
     required this.urls,
     this.initialIndex = 0,
+    this.information = const {},
   });
 
   final List<String> urls;
   final int initialIndex;
+  final Map<String, WidgetBuilder> information;
 
   @override
   State<ImageGalleryScreen> createState() => _ImageGalleryScreenState();
@@ -42,6 +44,16 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: Text('${_index + 1} de ${widget.urls.length}'),
+        actions: [
+          if (widget.urls.isNotEmpty &&
+              widget.information.containsKey(widget.urls[_index]))
+            IconButton(
+                tooltip: 'Información del archivo',
+                icon: const Icon(Icons.info_outline),
+                onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: widget.information[widget.urls[_index]]!)),
+        ],
       ),
       body: widget.urls.isEmpty
           ? const Center(
