@@ -28,47 +28,79 @@ I planned the main workflows for reporting local issues, reviewing submissions, 
 
 These screenshots show the app’s interface populated with fictional demonstration data, not actual community activity. The map uses an unrelated public basemap with an invented boundary and markers; it does not show the community’s location.
 
-### 1. Access and member management
+### Resident Experience
 
-<p align="center">
-  <img src="docs/screenshots/access-requests.png" width="300" alt="Access requests with pending, approved, rejected and withdrawn-access statuses" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/members.png" width="300" alt="Member list showing fictional residents and administrators" />
-</p>
+<details>
+<summary>Before signing in</summary>
 
-<p align="center"><em>Access requests · Members and roles</em></p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/welcome.png"><img src="docs/screenshots/resident/welcome.png" width="260" alt="Welcome screen" /></a>
+      <br /><em>Welcome screen</em>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/sign-in.png"><img src="docs/screenshots/resident/sign-in.png" width="260" alt="Sign-in" /></a>
+      <br /><em>Sign-in</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/access-request.png"><img src="docs/screenshots/resident/access-request.png" width="260" alt="Access request form" /></a>
+      <br /><em>Access request form</em>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/request-status.png"><img src="docs/screenshots/resident/request-status.png" width="260" alt="Request status lookup" /></a>
+      <br /><em>Request status lookup</em>
+    </td>
+  </tr>
+</table>
 
-### 2. Reports and moderation
+</details>
 
-<p align="center">
-  <img src="docs/screenshots/report-moderation.png" width="300" alt="Administrator review panel with pending reports and approval and rejection controls" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/report-tracking.png" width="300" alt="Report cards showing operational statuses, priorities and a rejection reason" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/projects.png"><img src="docs/screenshots/resident/projects.png" width="260" alt="Projects" /></a>
+      <br /><em>Projects</em>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/reports.png"><img src="docs/screenshots/resident/reports.png" width="260" alt="Report tracking" /></a>
+      <br /><em>Report tracking</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/map.png"><img src="docs/screenshots/resident/map.png" width="260" alt="Interactive map" /></a>
+      <br /><em>Interactive map</em>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/resident/agenda.png"><img src="docs/screenshots/resident/agenda.png" width="260" alt="Community agenda" /></a>
+      <br /><em>Community agenda</em>
+    </td>
+  </tr>
+</table>
 
-<p align="center"><em>Moderation · Report tracking</em></p>
+### Administration and Management
 
-### 3. Projects and archives
-
-<p align="center">
-  <img src="docs/screenshots/projects.png" width="300" alt="Community projects with status filters and progress percentages" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/archived-projects.png" width="300" alt="Archived projects with information, restoration and permanent deletion options" />
-</p>
-
-<p align="center"><em>Active projects · Archived projects</em></p>
-
-### 4. Interactive map
-
-<p align="center">
-  <img src="docs/screenshots/map.png" width="300" alt="Interactive map with a fictional community boundary, reference points and visible OpenStreetMap attribution" />
-</p>
-
-### 5. Community agenda
-
-<p align="center">
-  <img src="docs/screenshots/agenda.png" width="300" alt="Community agenda with fictional meetings, activities, dates and locations" />
-</p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/administrator/access-requests.png"><img src="docs/screenshots/administrator/access-requests.png" width="260" alt="Access requests" /></a>
+      <br /><em>Access requests</em>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/screenshots/administrator/members.png"><img src="docs/screenshots/administrator/members.png" width="260" alt="Members and roles" /></a>
+      <br /><em>Members and roles</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <a href="docs/screenshots/administrator/report-moderation.png"><img src="docs/screenshots/administrator/report-moderation.png" width="260" alt="Reports awaiting approval" /></a>
+      <br /><em>Reports awaiting approval</em>
+    </td>
+  </tr>
+</table>
 
 ## Technical Challenges and Lessons Learned
 
