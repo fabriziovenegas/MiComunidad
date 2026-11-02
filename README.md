@@ -95,6 +95,8 @@ These screenshots show the app’s interface populated with fictional demonstrat
 
 > **Signed in as an administrator.**
 
+Administrators can also use the resident features shown above. Their additional permissions allow them to manage access and members, moderate reports, and create or edit projects and agenda activities.
+
 <table>
   <tr>
     <td align="center" width="50%">
