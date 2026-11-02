@@ -119,7 +119,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
-                              'Completa tus datos para unirte a la Junta Vecinal.',
+                              'Completa tus datos para solicitar acceso a la comunidad.',
                               style: Theme.of(context).textTheme.titleLarge),
                           const SizedBox(height: 6),
                           const Text(
