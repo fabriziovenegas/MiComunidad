@@ -28,10 +28,12 @@ I planned the main workflows for reporting local issues, reviewing submissions, 
 
 These screenshots show the app’s interface populated with fictional demonstration data, not actual community activity. The map uses an unrelated public basemap with an invented boundary and markers; it does not show the community’s location.
 
-### Resident Experience
+### 1. Before Signing In
+
+> **Public access** — Welcome, sign-in, access requests and status lookup.
 
 <details>
-<summary>Before signing in</summary>
+<summary><strong>View public access screenshots</strong> (4 screens)</summary>
 
 <table>
   <tr>
@@ -58,6 +60,12 @@ These screenshots show the app’s interface populated with fictional demonstrat
 
 </details>
 
+---
+
+### 2. Resident Experience
+
+> **Signed in as a resident.**
+
 <table>
   <tr>
     <td align="center" width="50%">
@@ -81,7 +89,11 @@ These screenshots show the app’s interface populated with fictional demonstrat
   </tr>
 </table>
 
-### Administration and Management
+---
+
+### 3. Administration and Management
+
+> **Signed in as an administrator.**
 
 <table>
   <tr>
