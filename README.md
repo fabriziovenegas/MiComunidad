@@ -10,6 +10,27 @@ Through my experience in community volunteering, including taking on a coordinat
 
 This motivated me to develop MiComunidad, a mobile application designed to bring community information into one place and support communication, planning, and follow-up. The application provides different levels of access for residents and administrators, allowing residents to report local issues and administrators to review them alongside ongoing projects and activities.
 
+## Expected Community Impact
+
+**Expected to benefit 90 families.**
+
+MiComunidad is expected to benefit 90 families by bringing community management into one place. The app is designed to help residents and administrators report local issues, follow projects, organize meetings and activities, share photographs and documents, and manage community membership.
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/illustrations/fictional-neighborhood.png" width="420" alt="AI-generated image of fictional wooden homes with windows on a Peruvian hillside" />
+      <br /><em>Community life</em>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/illustrations/fictional-community-meeting.png" width="420" alt="AI-generated image of a fictional community assembly with representatives at the front and residents seated in rows" />
+      <br /><em>Planning and participation</em>
+    </td>
+  </tr>
+</table>
+
+*These AI-generated images depict a fictional community and are included for illustration only. They do not show actual residents or locations.*
+
 ## My Role and Contributions
 
 I conceived MiComunidad and wrote its initial project proposal, translating community needs into detailed functional requirements. I designed the application’s screen structure, navigation, user roles, and access boundaries, specifying what information each section would display and which actions residents and administrators could perform.
