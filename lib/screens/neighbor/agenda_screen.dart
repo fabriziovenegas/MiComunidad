@@ -1,3 +1,4 @@
+import '../../widgets/online_action_dialog.dart';
 import '../../widgets/limited_text_form_field.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -8,21 +9,31 @@ import '../../widgets/content_detail_sheet.dart';
 import '../../widgets/agenda_presentation.dart';
 import '../../services/pending_content_service.dart';
 import '../../services/event_content_editor.dart';
+import '../../services/upload_connection.dart';
+import '../../services/edit_save_feedback.dart';
 import '../../widgets/pending_content_notice.dart';
 import '../../widgets/form_submission_guard.dart';
 import '../../widgets/upload_error_notice.dart';
 
 class AgendaScreen extends StatelessWidget {
   const AgendaScreen(
-      {super.key, required this.user, this.pendingContent, this.eventEditor});
+      {super.key,
+      required this.user,
+      this.pendingContent,
+      this.eventEditor,
+      this.isOffline,
+      this.eventStream});
   final AppUser user;
   final PendingContentService? pendingContent;
   final EventContentEditor? eventEditor;
+  final Future<bool> Function()? isOffline;
+  final Stream<QuerySnapshot<Map<String, dynamic>>>? eventStream;
   PendingContentService get _outbox =>
       pendingContent ?? PendingContentService.instance;
 
   Future<void> _eventForm(BuildContext context,
       [QueryDocumentSnapshot<Map<String, dynamic>>? document]) async {
+    final screenContext = context;
     if (!user.isAdmin) return;
     if (ModalRoute.of(context)?.isCurrent == false) return;
     final formKey = GlobalKey<FormState>();
@@ -41,6 +52,10 @@ class AgendaScreen extends StatelessWidget {
         barrierDismissible: false,
         builder: (context) => StatefulBuilder(
             builder: (context, setDialogState) => FormSubmissionGuard(
+                slowAfter:
+                    document == null ? null : const Duration(seconds: 10),
+                slowMessage: 'El guardado está tardando. Espera un momento',
+                errorMessage: document == null ? null : editSaveErrorMessage,
                 validate: () => formKey.currentState?.validate() == true,
                 onSubmit: () async {
                   final fields = <String, dynamic>{
@@ -52,11 +67,19 @@ class AgendaScreen extends StatelessWidget {
                         : Timestamp.fromDate(date),
                   };
                   if (document != null) {
+                    if (await (isOffline ?? UploadConnection.isOffline)()) {
+                      throw const EditConnectionRequired();
+                    }
                     if (eventEditor != null) {
                       await eventEditor!.save(document.id, fields);
                     } else {
                       await CommunityService.instance
                           .updateEvent(document.id, fields);
+                    }
+                    if (screenContext.mounted) {
+                      if (!context.mounted) {
+                        showSuccessNotice(screenContext, 'Cambios guardados');
+                      }
                     }
                   } else {
                     result = await _outbox.submit(
@@ -163,21 +186,24 @@ class AgendaScreen extends StatelessWidget {
                                     ]))),
                         actions: [
                           TextButton(
-                              onPressed: saving
+                              onPressed: saving &&
+                                      !FormSubmissionGuard.isTakingLong(context)
                                   ? null
                                   : () => Navigator.pop(context, false),
-                              child: const Text('Cancelar')),
+                              child: Text(saving ? 'Cerrar' : 'Cancelar')),
                           FilledButton(
                               onPressed: saving ? null : submit,
                               child: Text(saving
-                                  ? 'Guardando…'
+                                  ? (FormSubmissionGuard.isTakingLong(context)
+                                      ? 'Esperando confirmación…'
+                                      : 'Guardando…')
                                   : document == null
                                       ? 'Crear'
                                       : 'Guardar cambios'))
                         ]))));
     if (save == true && context.mounted) {
       if (document != null) {
-        showSuccessNotice(context, 'Actividad actualizada.');
+        showSuccessNotice(context, 'Cambios guardados');
         return;
       }
       if (result?.state == PendingSendState.blocked) {
@@ -187,8 +213,8 @@ class AgendaScreen extends StatelessWidget {
         showSuccessNotice(
             context,
             result?.state == PendingSendState.queued
-                ? 'Actividad guardada en este dispositivo. Se enviará cuando haya conexión.'
-                : 'Actividad creada.');
+                ? 'Actividad guardada en este teléfono. El envío sigue pendiente.'
+                : 'Actividad enviada.');
       }
     }
   }
@@ -198,58 +224,23 @@ class AgendaScreen extends StatelessWidget {
     String eventId,
     String eventTitle,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Eliminar actividad'),
-        content: Text(
-          '¿Deseas eliminar "$eventTitle"? Esta acción no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      await CommunityService.instance.deleteEvent(eventId);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Actividad eliminada.'),
-          ),
-        );
-      }
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('No se pudo eliminar la actividad: $error'),
-            action: SnackBarAction(
-              label: 'Reintentar',
-              onPressed: () => _deleteEvent(context, eventId, eventTitle),
-            ),
-          ),
-        );
-      }
-    }
+    await showOnlineActionConfirmation(context,
+        actionKey: 'delete-event:$eventId',
+        title: 'Eliminar actividad',
+        question:
+            '¿Deseas eliminar "$eventTitle"? Esta acción no se puede deshacer.',
+        confirmLabel: 'Eliminar',
+        successMessage: 'Actividad eliminada.',
+        slowMessage:
+            'La eliminación de la actividad está tardando. Verifica tu conexión.',
+        action: () => CommunityService.instance.deleteEvent(eventId));
   }
 
   @override
   Widget build(BuildContext context) {
     return Stack(children: [
       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: CommunityService.instance.events(),
+        stream: eventStream ?? CommunityService.instance.events(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return ListView(children: [

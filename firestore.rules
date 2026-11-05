@@ -238,7 +238,8 @@ service cloud.firestore {
         && (!request.resource.data.keys().hasAny(['createdByName'])
           || request.resource.data.createdByName == profile().nombre)
         && request.resource.data.status == 'pendiente'
-        && request.resource.data.moderationStatus == 'pendiente'
+        && (request.resource.data.moderationStatus == 'pendiente'
+          || (admin() && request.resource.data.moderationStatus == 'aprobado'))
         && request.resource.data.get('deletionInProgress', false) == false
         && validReportContent(request.resource.data)
         && request.resource.data.createdAt == request.time

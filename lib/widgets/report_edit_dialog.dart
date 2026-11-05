@@ -1,3 +1,4 @@
+import 'online_action_dialog.dart';
 import 'limited_text_form_field.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -5,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import '../models/report_edit.dart';
 import '../utils/text_encoding.dart';
 import 'report_category.dart';
+import 'upload_error_notice.dart';
 
 export '../models/report_edit.dart' show ReportEditDraft;
 
@@ -17,12 +19,16 @@ class ReportEditDialog extends StatefulWidget {
     this.onSave,
     this.onChangeStatus,
     this.allowResolvedContentEditing = false,
+    this.isOffline,
+    this.actionKey,
   });
 
   final Map<String, dynamic> data;
   final SaveReportEdit? onSave;
   final Future<String?> Function()? onChangeStatus;
   final bool allowResolvedContentEditing;
+  final Future<bool> Function()? isOffline;
+  final String? actionKey;
 
   @override
   State<ReportEditDialog> createState() => _ReportEditDialogState();
@@ -40,6 +46,7 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
   late String _status;
   final _formKey = GlobalKey<FormState>();
   bool _saving = false;
+  bool _slow = false;
   bool _changingStatus = false;
   bool get _busy => _saving || _changingStatus;
   bool get _canEditContent =>
@@ -67,7 +74,7 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
 
   @override
   Widget build(BuildContext context) => PopScope(
-        canPop: !_busy,
+        canPop: !_busy || (_saving && _slow),
         child: AlertDialog(
           title: Text(
               _canEditContent ? 'Editar mi reporte' : 'Actualizar reporte'),
@@ -194,15 +201,6 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                         ],
                       ),
                     ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        _error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -210,8 +208,10 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
           ),
           actions: [
             TextButton(
-              onPressed: _busy ? null : () => Navigator.pop(context),
-              child: const Text('Cancelar'),
+              onPressed: _busy && !(_saving && _slow)
+                  ? null
+                  : () => Navigator.pop(context),
+              child: Text(_saving && _slow ? 'Cerrar' : 'Cancelar'),
             ),
             Tooltip(
               message: !_canEditContent
@@ -219,7 +219,9 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
                   : 'Guardar los cambios',
               child: FilledButton(
                 onPressed: !_canEditContent || _busy ? null : _saveChanges,
-                child: Text(_saving ? 'Guardando…' : 'Guardar'),
+                child: Text(_saving
+                    ? (_slow ? 'Esperando confirmación…' : 'Guardando…')
+                    : 'Guardar'),
               ),
             ),
           ],
@@ -230,43 +232,50 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
     if (_busy || !_canEditContent || !_formKey.currentState!.validate()) {
       return;
     }
+    dismissUploadError();
     setState(() {
       _saving = true;
+      _slow = false;
       _error = null;
     });
-    try {
-      await widget.onSave!(ReportEditDraft(
-        title: _title,
-        description: _description,
-        location: _location,
-        category: _category,
-        priority: _priority,
-      ));
-      if (mounted) {
-        setState(() => _saving = false);
-        Navigator.pop(context, true);
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = switch (error) {
-            FirebaseException(code: 'permission-denied') =>
-              'No tienes permiso para guardar este reporte. Puede haber finalizado o faltar habilitar la regla de edición. Tus cambios se conservan en este formulario.',
-            FirebaseException(code: 'not-found') =>
-              'El reporte ya no existe. Tus cambios se conservan en este formulario.',
-            FirebaseException(code: 'unauthenticated') =>
-              'Debes iniciar sesión para guardar. Tus cambios se conservan en este formulario.',
-            _ =>
-              'No se pudo guardar el reporte. Tus cambios se conservan en este formulario; puedes reintentar.',
-          };
-        });
-      }
-    }
+    final saved = await runOnlineAction(context,
+        actionKey: widget.actionKey ??
+            'edit-report:${identityHashCode(widget.onSave)}',
+        isOffline: widget.isOffline,
+        slowMessage:
+            'El guardado del reporte está tardando. Verifica tu conexión.',
+        successMessage: 'Cambios guardados correctamente.',
+        onSlow: () {
+          if (mounted) setState(() => _slow = true);
+        },
+        errorMessage: (error) => switch (error) {
+              FirebaseException(
+                code: 'unavailable' || 'network-request-failed'
+              ) =>
+                'Necesitas conexión para guardar los cambios',
+              FirebaseException(code: 'permission-denied') =>
+                'No tienes permiso para guardar este reporte. Puede haber finalizado o faltar habilitar la regla de edición. Tus cambios se conservan en este formulario.',
+              FirebaseException(code: 'not-found') =>
+                'El reporte ya no existe. Tus cambios se conservan en este formulario.',
+              FirebaseException(code: 'unauthenticated') =>
+                'Debes iniciar sesión para guardar. Tus cambios se conservan en este formulario.',
+              _ =>
+                'No se pudo guardar el reporte. Tus cambios se conservan en este formulario; puedes reintentar.',
+            },
+        action: () => widget.onSave!(ReportEditDraft(
+            title: _title,
+            description: _description,
+            location: _location,
+            category: _category,
+            priority: _priority)));
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (saved) Navigator.pop(context, true);
   }
 
   Future<void> _changeStatus() async {
     if (_busy || widget.onChangeStatus == null) return;
+    dismissUploadError();
     setState(() {
       _changingStatus = true;
       _error = null;
@@ -287,6 +296,7 @@ class _ReportEditDialogState extends State<ReportEditDialog> {
       if (mounted) {
         setState(() => _error =
             'No se pudo actualizar el estado. Tus cambios de contenido se conservan en este formulario.');
+        showUploadError(context, _error!);
       }
     } finally {
       if (mounted) setState(() => _changingStatus = false);

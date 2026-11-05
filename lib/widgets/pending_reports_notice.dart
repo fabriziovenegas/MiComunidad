@@ -56,9 +56,7 @@ class _PendingReportsNoticeState extends State<PendingReportsNotice> {
                     title: Text(item.fields['title'] ?? 'Reporte'),
                     subtitle: Text(item.blocked
                         ? 'No se pudo completar el envío. La copia sigue guardada.'
-                        : item.reportConfirmed
-                            ? 'Reporte enviado. Fotografía pendiente.'
-                            : 'Se enviará cuando tengas conexión y abras la app.'),
+                        : 'El envío sigue pendiente. Se reintentará automáticamente con la app abierta.'),
                   ),
                 TextButton(
                   onPressed: _retrying

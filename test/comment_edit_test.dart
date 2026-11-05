@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:micomunidad/services/comment_content_editor.dart';
 import 'package:micomunidad/widgets/comment_edit_dialog.dart';
+import 'package:micomunidad/widgets/upload_error_notice.dart';
 import 'package:micomunidad/widgets/content_comment_tile.dart';
 
 void main() {
+  tearDown(dismissUploadError);
   for (final collection in ['projects', 'events', 'reports']) {
     test('$collection edits only own text and keeps identity', () async {
       final db = FakeFirebaseFirestore();
@@ -74,6 +76,7 @@ void main() {
         home: Scaffold(
             body: CommentEditDialog(
                 initialText: 'Original',
+                isOffline: () async => false,
                 onSave: (text) async {
                   calls++;
                   throw StateError('offline');
@@ -91,6 +94,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, 1);
     expect(find.text('Texto corregido'), findsOneWidget);
-    expect(find.textContaining('No se pudo guardar.'), findsOneWidget);
+    expect(find.textContaining('No se pudo confirmar la operación.'),
+        findsOneWidget);
   });
 }

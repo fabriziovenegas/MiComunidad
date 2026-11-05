@@ -43,10 +43,11 @@ class AgendaPreviewCard extends StatelessWidget {
     final titleWidget = Text(title.isEmpty ? 'Actividad' : title,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context)
-            .textTheme
-            .titleLarge
-            ?.copyWith(color: AgendaVisuals.text, fontWeight: FontWeight.w700));
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontSize:
+                (Theme.of(context).textTheme.titleLarge?.fontSize ?? 22) - 2,
+            color: AgendaVisuals.text,
+            fontWeight: FontWeight.w700));
     final trailing = onDelete == null && onEdit == null
         ? const Icon(Icons.chevron_right, color: AgendaVisuals.secondaryText)
         : PopupMenuButton<String>(
@@ -145,25 +146,61 @@ class _AgendaDateBadge extends StatelessWidget {
             ? 'Fecha no disponible'
             : DateFormat('d MMMM yyyy', 'es').format(date!),
         excludeSemantics: true,
-        child: Container(
-          width: 64 +
-              20 * (MediaQuery.textScalerOf(context).scale(1).clamp(1, 2) - 1),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-          decoration: BoxDecoration(
-              color: AgendaVisuals.dateBackground,
-              borderRadius: BorderRadius.circular(12)),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(date == null ? '—' : DateFormat('d').format(date!),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: AgendaVisuals.text, fontWeight: FontWeight.w700)),
-            if (date != null) ...[
-              const SizedBox(height: 3),
-              Text(DateFormat('MMM', 'es').format(date!),
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: AgendaVisuals.green)),
-            ],
+        child: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Stack(clipBehavior: Clip.none, children: [
+            Container(
+                width: 64 +
+                    20 *
+                        (MediaQuery.textScalerOf(context).scale(1).clamp(1, 2) -
+                            1),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AgendaVisuals.green)),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                      height: 14,
+                      decoration: const BoxDecoration(
+                          color: Color(0xFF27834A),
+                          borderRadius:
+                              BorderRadius.vertical(top: Radius.circular(9)))),
+                  Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 3, 8, 0),
+                      child: Text(
+                          date == null ? '—' : DateFormat('d').format(date!),
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                  color: AgendaVisuals.text,
+                                  fontWeight: FontWeight.w700))),
+                  if (date != null) ...[
+                    const SizedBox(height: 3),
+                    Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 3),
+                        child: Text(DateFormat('MMM', 'es').format(date!),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: AgendaVisuals.green))),
+                  ],
+                ])),
+            for (final alignment in [Alignment.topLeft, Alignment.topRight])
+              Positioned.fill(
+                  top: -4,
+                  child: Align(
+                      alignment: alignment,
+                      child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 13),
+                          child: Container(
+                              width: 4,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                  color: AgendaVisuals.green,
+                                  borderRadius: BorderRadius.circular(3),
+                                  border: Border.all(
+                                      color: Colors.white, width: .6)))))),
           ]),
         ),
       );

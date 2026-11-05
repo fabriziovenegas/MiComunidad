@@ -1,5 +1,6 @@
-import '../../widgets/limited_text_form_field.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import '../../widgets/online_action_dialog.dart';
+import '../../widgets/limited_text_form_field.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../widgets/access_request_document_links.dart';
@@ -7,6 +8,8 @@ import '../../models/access_request.dart';
 import '../../models/user_model.dart';
 import '../../services/community_service.dart';
 import '../../services/access_request_review.dart';
+import '../../services/review_wait_feedback.dart';
+import '../../widgets/upload_error_notice.dart';
 import '../../widgets/access_request_details.dart';
 import '../../widgets/access_request_preview_card.dart';
 import '../../widgets/member_details_sheet.dart';
@@ -86,21 +89,31 @@ class _MembersScreenState extends State<MembersScreen>
     try {
       final result = await reviewAccessRequestWithEmail(
         approve: approve,
-        review: () => CommunityService.instance.reviewAccessRequest(
-            requestId: request.id, approve: approve, reason: reason),
+        review: () => waitForReview(
+          action: () => CommunityService.instance.reviewAccessRequest(
+              requestId: request.id, approve: approve, reason: reason),
+          onSlow: () {
+            if (mounted) {
+              showWarningNotice(context,
+                  reviewWaitingMessage(approve: approve, isReport: false));
+            }
+          },
+        ),
         sendEmail: () =>
             FirebaseAuth.instance.sendPasswordResetEmail(email: request.email),
       );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(result.message)));
+        if (result == AccessRequestReviewResult.approvedEmailFailed) {
+          showWarningNotice(context, result.message);
+        } else {
+          showSuccessNotice(context, result.message);
+        }
       }
     } catch (error) {
       if (mounted) {
         final message = accessRequestReviewErrorMessage(error,
             approve: approve, status: request.status);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
+        showUploadError(context, message);
       }
     } finally {
       if (mounted) setState(() => _busyId = null);
@@ -108,79 +121,46 @@ class _MembersScreenState extends State<MembersScreen>
   }
 
   Future<void> _remove(AppUser user) async {
-    final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-                title: const Text('Retirar acceso'),
-                content: Text('¿Deseas retirar el acceso de ${user.nombre}? '
-                    'Su historial de solicitudes y sus aportes a la comunidad se conservarán.'),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Cancelar')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Retirar'))
-                ]));
-    if (confirm != true) return;
+    if (_busyId != null) return;
     setState(() => _busyId = user.userId);
     try {
-      await CommunityService.instance.removeNeighbor(user.userId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Miembro retirado y solicitudes actualizadas.'),
-        ));
-      }
-    } catch (error) {
-      if (mounted) {
-        final message = error is FirebaseFunctionsException
-            ? error.message ??
-                'No se pudo completar la baja. Inténtalo nuevamente.'
-            : 'No se pudo completar la baja. Inténtalo nuevamente.';
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
-      }
+      await showOnlineActionConfirmation(context,
+          actionKey: 'member:${user.userId}',
+          title: 'Retirar acceso',
+          question:
+              '¿Deseas retirar el acceso de ${user.nombre}? Su historial de solicitudes y sus aportes a la comunidad se conservarán.',
+          confirmLabel: 'Retirar',
+          successMessage: 'Miembro retirado y solicitudes actualizadas.',
+          slowMessage:
+              'La retirada de acceso está tardando. Verifica tu conexión.',
+          errorMessage: (error) => error is FirebaseFunctionsException
+              ? error.message ??
+                  'No se pudo completar la baja. Inténtalo nuevamente.'
+              : 'No se pudo completar la baja. Inténtalo nuevamente.',
+          action: () => CommunityService.instance.removeNeighbor(user.userId));
     } finally {
       if (mounted) setState(() => _busyId = null);
     }
   }
 
   Future<void> _setRole(AppUser user, UserRole role) async {
+    if (_busyId != null) return;
     final nextLabel = role == UserRole.admin ? 'administrador' : 'vecino';
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cambiar rol'),
-        content: Text(
-          '¿Deseas convertir a ${user.nombre} en $nextLabel?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirmar'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
     setState(() => _busyId = user.userId);
     try {
-      await CommunityService.instance.setUserRole(user.userId, role);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${user.nombre} ahora es $nextLabel.')),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo cambiar el rol: $error')),
-        );
-      }
+      await showOnlineActionConfirmation(context,
+          actionKey: 'member:${user.userId}',
+          title: 'Cambiar rol',
+          question: '¿Deseas convertir a ${user.nombre} en $nextLabel?',
+          confirmLabel: 'Confirmar',
+          successMessage: '${user.nombre} ahora es $nextLabel.',
+          slowMessage: 'El cambio de rol está tardando. Verifica tu conexión.',
+          errorMessage: (error) => error is FirebaseFunctionsException
+              ? error.message ??
+                  'No se pudo cambiar el rol. Inténtalo nuevamente.'
+              : 'No se pudo cambiar el rol. Inténtalo nuevamente.',
+          action: () =>
+              CommunityService.instance.setUserRole(user.userId, role));
     } finally {
       if (mounted) setState(() => _busyId = null);
     }

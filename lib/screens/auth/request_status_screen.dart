@@ -1,3 +1,4 @@
+import '../../widgets/online_action_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -9,11 +10,15 @@ class RequestStatusScreen extends StatefulWidget {
     super.key,
     this.initialDni,
     this.initialRequest,
+    this.isOffline,
+    this.findRequest,
   });
 
   /// Valores opcionales usados por pruebas y capturas de interfaz.
   /// En la aplicación normal la consulta continúa realizándose mediante DNI.
   final String? initialDni;
+  final Future<bool> Function()? isOffline;
+  final Future<Map<String, dynamic>?> Function(String)? findRequest;
   final Map<String, dynamic>? initialRequest;
 
   @override
@@ -42,6 +47,7 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
   }
 
   Future<void> _search() async {
+    if (_loading) return;
     if (_dni.text.length != 8) {
       setState(() => _error = 'Ingresa un DNI de 8 dígitos.');
       return;
@@ -52,8 +58,22 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
       _request = null;
     });
     try {
-      final result = await AuthService.instance.findRequestStatus(_dni.text);
-      if (mounted) {
+      Map<String, dynamic>? result;
+      final dni = _dni.text;
+      final searched = await runOnlineAction(context,
+          actionKey: 'request-status:${identityHashCode(this)}',
+          isOffline: widget.isOffline,
+          offlineMessage:
+              'Necesitas conexión para consultar el estado de tu solicitud',
+          slowMessage: 'La consulta está tardando. Verifica tu conexión.',
+          successMessage: null,
+          errorMessage: (_) =>
+              'No se pudo consultar el estado. Inténtalo nuevamente.',
+          action: () async {
+            result = await (widget.findRequest ??
+                AuthService.instance.findRequestStatus)(dni);
+          });
+      if (searched && mounted) {
         setState(() => result == null
             ? _error = 'No encontramos una solicitud con ese DNI.'
             : _request = result);
@@ -93,6 +113,7 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _dni,
+                    enabled: !_loading,
                     keyboardType: TextInputType.number,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
@@ -102,7 +123,7 @@ class _RequestStatusScreenState extends State<RequestStatusScreen> {
                     decoration: InputDecoration(
                         labelText: 'DNI (8 dígitos)',
                         suffixIcon: IconButton(
-                            onPressed: _dni.clear,
+                            onPressed: _loading ? null : _dni.clear,
                             icon: const Icon(Icons.clear))),
                   ),
                   const SizedBox(height: 14),

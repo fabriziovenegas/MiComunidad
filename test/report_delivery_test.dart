@@ -209,6 +209,30 @@ void main() {
     };
   }
 
+  test('three photos use distinct stable metadata and Storage IDs', () async {
+    seed();
+    final multiple = PendingReport(
+        id: report.id,
+        userId: user,
+        fields: reportFields,
+        photoNames: ['one.png', 'two.png', 'three.png']);
+    for (var round = 0; round < 2; round++) {
+      for (var index = 0; index < 3; index++) {
+        await sender.ensurePhoto(multiple.photoAt(index), photo);
+      }
+    }
+    expect(storage.writes, hasLength(3));
+    for (var index = 0; index < 3; index++) {
+      final selected = multiple.photoAt(index);
+      expect(storage.metadata[selected.photoStoragePath]!['reportUploadId'],
+          selected.photoAttachmentId);
+      expect(
+          db.rows['reports/stable/photos/${selected.photoAttachmentId}']![
+              'name'],
+          multiple.photoNames[index]);
+    }
+  });
+
   test('creates the report with original moderation and author defaults',
       () async {
     await sender.ensureReport(report);
@@ -217,6 +241,27 @@ void main() {
         containsPair('moderationStatus', 'pendiente'));
     expect(db.rows['reports/stable']!['createdAt'], isA<FieldValue>());
   });
+  test('approved administrator creates an approved report ready for attention',
+      () async {
+    db.profiles['owner']!['role'] = 'admin';
+    await sender.ensureReport(report);
+    expect(db.rows['reports/stable']!['moderationStatus'], 'aprobado');
+    expect(db.rows['reports/stable']!['status'], 'pendiente');
+  });
+  test('queued creation uses current role, not a previous administrator role',
+      () async {
+    db.profiles['owner']!['role'] = 'vecino';
+    await sender.ensureReport(report);
+    expect(db.rows['reports/stable']!['moderationStatus'], 'pendiente');
+  });
+  for (final status in ['pendiente', 'rechazado']) {
+    test('unapproved administrator is not auto-approved ($status)', () async {
+      db.profiles['owner']!['role'] = 'admin';
+      db.profiles['owner']!['approvalStatus'] = status;
+      await sender.ensureReport(report);
+      expect(db.rows['reports/stable']!['moderationStatus'], 'pendiente');
+    });
+  }
   test('a stale or forged draft name is replaced by the current profile name',
       () async {
     db.profiles['owner']!['nombre'] = 'Fictional Current Name';

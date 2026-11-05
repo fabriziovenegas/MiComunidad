@@ -9,10 +9,33 @@ Future<void> showCommunityInfoDialog(BuildContext context) {
 }
 
 class CommunityInfoButton extends StatelessWidget {
-  const CommunityInfoButton({super.key});
+  const CommunityInfoButton({super.key, this.compact = false});
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return Material(
+        color: const Color(0xFFDDEEE2),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => showCommunityInfoDialog(context),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(children: [
+              const Icon(Icons.menu_book_outlined, color: Color(0xFF276749)),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Text('Conoce más sobre la comunidad',
+                      style: Theme.of(context).textTheme.bodyMedium)),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right, color: Color(0xFF276749)),
+            ]),
+          ),
+        ),
+      );
+    }
     return SizedBox(
       width: double.infinity,
       child: FilledButton.tonalIcon(

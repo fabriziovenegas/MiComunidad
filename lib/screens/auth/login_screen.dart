@@ -1,3 +1,5 @@
+import '../../widgets/online_action_dialog.dart';
+import '../../widgets/password_reset_dialog.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../config/app_colors.dart';
@@ -5,7 +7,12 @@ import '../../config/app_identity.dart';
 import '../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen(
+      {super.key, this.sendResetEmail, this.isOffline, this.signIn});
+  final Future<void> Function(String)? sendResetEmail;
+  final Future<bool> Function()? isOffline;
+  final Future<void> Function(
+      {required String email, required String password})? signIn;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -17,6 +24,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   bool _hidePassword = true;
   bool _loading = false;
+  bool _resetting = false;
 
   @override
   void dispose() {
@@ -26,67 +34,45 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_loading || _resetting || !_formKey.currentState!.validate()) return;
+    final email = _email.text, password = _password.text;
     setState(() => _loading = true);
     try {
-      await AuthService.instance.signIn(
-        email: _email.text,
-        password: _password.text,
-      );
-      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
-    } on FirebaseAuthException catch (error) {
-      _showError(_authMessage(error.code));
-    } catch (error) {
-      _showError(_safeMessage(error));
+      final signedIn = await runOnlineAction(context,
+          actionKey: 'sign-in',
+          isOffline: widget.isOffline,
+          offlineMessage: 'Necesitas conexión para iniciar sesión',
+          slowMessage:
+              'El inicio de sesión está tardando. Verifica tu conexión',
+          successMessage: null,
+          errorMessage: (error) => error is FirebaseAuthException
+              ? _authMessage(error.code)
+              : _safeMessage(error),
+          action: () => (widget.signIn ?? AuthService.instance.signIn)(
+              email: email, password: password));
+      if (signedIn && mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _resetPassword() async {
-    var inputEmail = _email.text;
-    final email = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Recuperar contraseña'),
-        content: TextFormField(
-          initialValue: inputEmail,
-          onChanged: (value) => inputEmail = value,
-          keyboardType: TextInputType.emailAddress,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Correo electrónico'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, inputEmail.trim()),
-            child: const Text('Enviar enlace'),
-          ),
-        ],
-      ),
-    );
-    if (email == null || email.isEmpty) return;
+    if (_resetting || _loading) return;
+    setState(() => _resetting = true);
     try {
-      await AuthService.instance.sendPasswordResetEmail(email);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-          'Si el correo está asociado a una cuenta, recibirás un enlace para restablecer tu contraseña.',
-        ),
-      ));
-    } catch (error) {
-      _showError(
-          'No se pudo enviar el enlace. Verifica el correo y la conexión.');
+      await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => PasswordResetDialog(
+              initialEmail: _email.text,
+              isOffline: widget.isOffline,
+              sendEmail: (email) => (widget.sendResetEmail ??
+                  AuthService.instance.sendPasswordResetEmail)(email)));
+    } finally {
+      if (mounted) setState(() => _resetting = false);
     }
-  }
-
-  void _showError(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.error),
-    );
   }
 
   String _authMessage(String code) => switch (code) {
@@ -138,6 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 28),
                         TextFormField(
                           controller: _email,
+                          enabled: !_loading,
                           keyboardType: TextInputType.emailAddress,
                           autofillHints: const [AutofillHints.email],
                           decoration: const InputDecoration(
@@ -151,6 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 16),
                         TextFormField(
                           controller: _password,
+                          enabled: !_loading,
                           obscureText: _hidePassword,
                           autofillHints: const [AutofillHints.password],
                           onFieldSubmitted: (_) => _login(),
@@ -188,7 +176,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         TextButton(
-                            onPressed: _loading ? null : _resetPassword,
+                            onPressed:
+                                _loading || _resetting ? null : _resetPassword,
                             child: const Text('¿Olvidaste tu contraseña?')),
                         const Divider(height: 30),
                         Wrap(

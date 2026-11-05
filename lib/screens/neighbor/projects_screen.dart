@@ -1,3 +1,4 @@
+import '../../widgets/online_action_dialog.dart';
 import '../../services/upload_connection.dart';
 import '../../widgets/project_dates_fields.dart';
 import '../../models/project_dates.dart';
@@ -218,38 +219,24 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                             onPressed: saving
                                                 ? null
                                                 : () async {
-                                                    final confirmed =
-                                                        await showDialog<bool>(
-                                                      context: context,
-                                                      builder:
-                                                          (confirmContext) =>
-                                                              AlertDialog(
-                                                        title: const Text(
-                                                            'Archivar proyecto'),
-                                                        content: const Text(
-                                                          '¿Deseas archivar este proyecto? '
-                                                          'Dejará de aparecer en la lista normal y podrás restaurarlo desde Archivados.',
-                                                        ),
-                                                        actions: [
-                                                          TextButton(
-                                                            onPressed: () =>
-                                                                Navigator.pop(
-                                                                    confirmContext,
-                                                                    false),
-                                                            child: const Text(
-                                                                'Cancelar'),
-                                                          ),
-                                                          FilledButton(
-                                                            onPressed: () =>
-                                                                Navigator.pop(
-                                                                    confirmContext,
-                                                                    true),
-                                                            child: const Text(
-                                                                'Archivar'),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    );
+                                                    final confirmed = await showOnlineActionConfirmation(
+                                                        context,
+                                                        actionKey:
+                                                            'archive-project:${document.id}',
+                                                        title:
+                                                            'Archivar proyecto',
+                                                        question:
+                                                            '¿Deseas archivar este proyecto? Dejará de aparecer en la lista normal y podrás restaurarlo desde Archivados.',
+                                                        confirmLabel:
+                                                            'Archivar',
+                                                        successMessage:
+                                                            'Proyecto archivado.',
+                                                        action: () =>
+                                                            CommunityService
+                                                                .instance
+                                                                .moveProjectToTrash(
+                                                                    document
+                                                                        .id));
 
                                                     if (confirmed == true &&
                                                         context.mounted) {
@@ -314,31 +301,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         _editDrafts[document.id] = retainedDraft;
       }
     }
-    if (action == 'trash' && document != null) {
-      try {
-        await CommunityService.instance.moveProjectToTrash(
-          document.id,
-        );
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Proyecto archivado.'),
-            ),
-          );
-        }
-      } catch (error) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('No se pudo archivar el proyecto: $error'),
-            ),
-          );
-        }
-      }
-
-      return;
-    }
+    if (action == 'trash') return;
 
     if (action == 'save' && mounted) {
       if (result?.state == PendingSendState.blocked) {
@@ -348,10 +311,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         showSuccessNotice(
             context,
             result?.state == PendingSendState.queued
-                ? 'Proyecto guardado en este dispositivo. Se enviará cuando haya conexión.'
+                ? 'Proyecto guardado en este teléfono. El envío sigue pendiente.'
                 : document != null
                     ? 'Cambios guardados'
-                    : 'Proyecto guardado.');
+                    : 'Proyecto enviado.');
       }
     }
   }

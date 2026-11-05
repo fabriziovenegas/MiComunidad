@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micomunidad/widgets/report_status_dialog.dart';
+import 'package:micomunidad/widgets/upload_error_notice.dart';
 import 'package:micomunidad/models/report_edit.dart';
 import 'package:micomunidad/models/user_model.dart';
 
@@ -18,8 +19,10 @@ Future<void> openStatus(
             final result = await showDialog<String>(
               context: context,
               barrierDismissible: false,
-              builder: (_) =>
-                  ReportStatusDialog(initialStatus: initial, onSave: save),
+              builder: (_) => ReportStatusDialog(
+                  initialStatus: initial,
+                  onSave: save,
+                  isOffline: () async => false),
             );
             onClosed?.call(result);
           },
@@ -33,6 +36,7 @@ Future<void> openStatus(
 }
 
 void main() {
+  tearDown(dismissUploadError);
   testWidgets(
       'other-author admin opens only a state selector without content fields',
       (tester) async {
@@ -126,7 +130,7 @@ void main() {
     await tester.tap(find.text('Guardar'));
     await tester.pumpAndSettle();
     expect(closed, isNull);
-    expect(find.textContaining('Firebase rechazó'), findsOneWidget);
+    expect(find.textContaining('Tu cuenta no tiene permiso'), findsOneWidget);
     expect(find.text('Resuelto'), findsOneWidget);
     await tester.tap(find.text('Guardar'));
     await tester.pumpAndSettle();

@@ -1,3 +1,4 @@
+import '../../services/online_admin_action_writer.dart';
 import '../../widgets/map_point_form.dart';
 import '../../widgets/upload_error_notice.dart';
 import '../../services/map_point_writer.dart';
@@ -63,13 +64,15 @@ class _MapScreenState extends State<MapScreen> {
       builder: (context) => CommunityMapPointSheet(
         title: title,
         description: description,
-        onDelete:
-            pointId != null && widget.user.isAdmin && widget.user.isApproved
-                ? () => FirebaseFirestore.instance
-                    .collection('mapPoints')
-                    .doc(pointId)
-                    .delete()
-                : null,
+        actionKey: pointId == null ? null : 'delete-map-point:$pointId',
+        onDelete: pointId != null &&
+                widget.user.isAdmin &&
+                widget.user.isApproved
+            ? () => OnlineAdminActionWriter(
+                    firestore: FirebaseFirestore.instance,
+                    currentUserId: () => FirebaseAuth.instance.currentUser?.uid)
+                .deleteMapPoint(pointId)
+            : null,
       ),
     );
   }

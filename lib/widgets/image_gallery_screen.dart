@@ -77,18 +77,6 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
                         progress == null
                             ? child
                             : const Center(child: CircularProgressIndicator()),
-                    errorBuilder: (_, __, ___) => const Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.broken_image_outlined,
-                            color: Colors.white70, size: 52),
-                        SizedBox(height: 12),
-                        Text(
-                          'No se pudo cargar la fotografía.',
-                          style: TextStyle(color: Colors.white70),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),

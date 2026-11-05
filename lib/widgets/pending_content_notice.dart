@@ -120,7 +120,9 @@ class _PendingContentNoticeState extends State<PendingContentNotice> {
                     subtitle: Text(item.blocked
                         ? item.reason ??
                             'No se pudo completar el envío. La copia sigue guardada.'
-                        : 'Se enviará cuando tengas conexión y abras la app.')),
+                        : item.isComment
+                            ? 'Se enviará cuando tengas conexión y abras la app.'
+                            : 'El envío sigue pendiente. Se reintentará automáticamente con la app abierta.')),
               TextButton(
                   onPressed: _retrying
                       ? null

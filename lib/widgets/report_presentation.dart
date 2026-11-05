@@ -131,7 +131,7 @@ class ReportPreviewCard extends StatelessWidget {
         onTap: onOpen,
         child: Stack(children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Padding(
@@ -144,7 +144,7 @@ class ReportPreviewCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           color: ReportVisuals.text))),
               if (description.isNotEmpty) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Text(description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -153,7 +153,7 @@ class ReportPreviewCard extends StatelessWidget {
                         .bodyMedium
                         ?.copyWith(color: ReportVisuals.secondaryText)),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Wrap(
                   spacing: 12,
                   runSpacing: 10,
@@ -162,7 +162,7 @@ class ReportPreviewCard extends StatelessWidget {
                     ReportStatusBadge(status: status),
                     ReportPriorityLabel(priority: data['priority'] ?? 'media'),
                   ]),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _ReportLine(
                   icon: Icons.person_outline,
                   child: DefaultTextStyle.merge(
@@ -174,7 +174,7 @@ class ReportPreviewCard extends StatelessWidget {
                           ?.copyWith(color: ReportVisuals.secondaryText),
                       child: author)),
               if (location.isNotEmpty) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 _ReportLine(
                     icon: Icons.location_on_outlined,
                     child: Text(location,

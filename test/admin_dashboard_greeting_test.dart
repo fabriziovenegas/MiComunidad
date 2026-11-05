@@ -117,13 +117,14 @@ void main() {
     expect(find.text('Hola, Marina Salas'), findsNothing);
     expect(find.text('Panel de control'), findsNothing);
     expect(
-      find.text('Gestiona la actividad de la comunidad desde un solo lugar.'),
+      find.text('Gestiona la actividad de tu comunidad.'),
       findsOneWidget,
     );
     expect(find.text('Conoce más sobre la comunidad'), findsOneWidget);
     expect(find.text('Accesos de administración'), findsOneWidget);
     expect(find.text('Solicitudes'), findsOneWidget);
-    expect(find.text('Proyectos'), findsNWidgets(2));
+    expect(find.text('Proyectos'), findsOneWidget);
+    expect(find.text('Proyectos comunitarios'), findsOneWidget);
     expect(find.text('Reportes'), findsOneWidget);
     expect(find.text('Actividades'), findsOneWidget);
 
@@ -171,7 +172,7 @@ void main() {
     expect(tester.element(find.byType(AdminDashboardScreen)),
         same(originalElement));
     expect(
-      find.text('Gestiona la actividad de la comunidad desde un solo lugar.'),
+      find.text('Gestiona la actividad de tu comunidad.'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);

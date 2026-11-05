@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micomunidad/models/user_model.dart';
 import 'package:micomunidad/screens/profile_screen.dart';
+import 'package:micomunidad/widgets/upload_error_notice.dart';
 
 void main() {
+  tearDown(dismissUploadError);
   Future<void> prepareView(WidgetTester tester) async {
     tester.view.physicalSize = const Size(900, 1800);
     tester.view.devicePixelRatio = 1;
@@ -39,6 +41,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: ProfileScreen(
         user: user,
+        isOffline: () async => false,
         onSave: (
             {required nombre,
             required dni,
@@ -86,7 +89,7 @@ void main() {
         isNull);
     done.complete();
     await tester.pumpAndSettle();
-    expect(find.text('Cambios guardados correctamente.'), findsOneWidget);
+    expect(find.text('Cambios guardados'), findsOneWidget);
   });
 
   testWidgets('a rejected DNI correction preserves entries and permits retry',
@@ -96,6 +99,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: ProfileScreen(
         user: user,
+        isOffline: () async => false,
         onSave: (
             {required nombre,
             required dni,
@@ -116,7 +120,7 @@ void main() {
     await tester.tap(find.text('Guardar cambios'));
     await tester.pumpAndSettle();
     expect(find.text('El DNI ya pertenece a otra cuenta.'), findsOneWidget);
-    expect(find.text('Cambios guardados correctamente.'), findsNothing);
+    expect(find.text('Cambios guardados'), findsNothing);
     expect(
         tester
             .widget<TextFormField>(find.byType(TextFormField).at(1))
@@ -136,6 +140,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: ProfileScreen(
         user: user,
+        isOffline: () async => false,
         onSave: (
             {required nombre,
             required dni,

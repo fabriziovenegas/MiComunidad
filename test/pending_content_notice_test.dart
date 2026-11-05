@@ -29,7 +29,8 @@ void main() {
     service = PendingContentService(
         directory: () async => directory,
         currentUserId: () => 'owner',
-        delivery: delivery);
+        delivery: delivery,
+        foregroundWait: const Duration(milliseconds: 80));
   });
   tearDown(() async {
     dismissUploadError();

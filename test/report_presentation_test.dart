@@ -67,7 +67,7 @@ void main() {
         tester.getTopLeft(find.text(example['description'] as String)).dy -
             tester.getBottomLeft(find.text(example['title'] as String)).dy;
     expect(editGap, plainGap);
-    expect(editGap, 12);
+    expect(editGap, 10);
     expect(tester.getSize(find.byType(ReportPreviewCard)).height, plainHeight);
     final editRect = tester.getRect(find.byTooltip('Editar mi reporte'));
     expect(editRect.width, greaterThanOrEqualTo(48));
@@ -106,7 +106,7 @@ void main() {
       expect(
           tester.getTopLeft(find.text(example['description'] as String)).dy -
               titleRect.bottom,
-          12);
+          10);
       await tester.tap(find.byTooltip('Editar mi reporte'));
       expect(edits, 1);
       expect(opens, 0);

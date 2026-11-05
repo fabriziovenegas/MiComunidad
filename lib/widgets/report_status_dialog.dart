@@ -1,4 +1,4 @@
-import 'package:firebase_core/firebase_core.dart';
+import 'online_action_dialog.dart';
 import 'package:flutter/material.dart';
 
 /// Returns the selected status only after the server confirms its own write.
@@ -7,9 +7,13 @@ class ReportStatusDialog extends StatefulWidget {
     super.key,
     required this.initialStatus,
     required this.onSave,
+    this.isOffline,
+    this.actionKey,
   });
 
   final String initialStatus;
+  final Future<bool> Function()? isOffline;
+  final String? actionKey;
   final Future<void> Function(String status) onSave;
 
   @override
@@ -20,7 +24,7 @@ class _ReportStatusDialogState extends State<ReportStatusDialog> {
   static const _statuses = ['pendiente', 'en_proceso', 'resuelto'];
   late String _status;
   bool _saving = false;
-  String? _error;
+  bool _slow = false;
 
   @override
   void initState() {
@@ -32,7 +36,7 @@ class _ReportStatusDialogState extends State<ReportStatusDialog> {
 
   @override
   Widget build(BuildContext context) => PopScope(
-        canPop: !_saving,
+        canPop: !_saving || _slow,
         child: AlertDialog(
           title: const Text('Actualizar reporte'),
           content: Column(
@@ -57,22 +61,19 @@ class _ReportStatusDialogState extends State<ReportStatusDialog> {
                         if (value != null) setState(() => _status = value);
                       },
               ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!,
-                    style:
-                        TextStyle(color: Theme.of(context).colorScheme.error)),
-              ],
             ],
           ),
           actions: [
             TextButton(
-              onPressed: _saving ? null : () => Navigator.pop(context),
-              child: const Text('Cancelar'),
+              onPressed:
+                  _saving && !_slow ? null : () => Navigator.pop(context),
+              child: Text(_saving ? 'Cerrar' : 'Cancelar'),
             ),
             FilledButton(
               onPressed: _saving ? null : _save,
-              child: Text(_saving ? 'Guardando…' : 'Guardar'),
+              child: Text(_saving
+                  ? (_slow ? 'Esperando confirmación…' : 'Guardando…')
+                  : 'Guardar'),
             ),
           ],
         ),
@@ -82,24 +83,19 @@ class _ReportStatusDialogState extends State<ReportStatusDialog> {
     if (_saving) return;
     setState(() {
       _saving = true;
-      _error = null;
+      _slow = false;
     });
-    try {
-      await widget.onSave(_status);
-      if (mounted) {
-        setState(() => _saving = false);
-        Navigator.pop(context, _status);
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = error is FirebaseException &&
-                  error.code == 'permission-denied'
-              ? 'No se pudo guardar el estado: Firebase rechazó esta actualización. El estado seleccionado se conserva para reintentar.'
-              : 'No se pudo guardar el estado. Puedes reintentar sin volver a seleccionarlo.';
+    final saved = await runOnlineAction(context,
+        actionKey: widget.actionKey ??
+            'report-status:${identityHashCode(widget.onSave)}',
+        action: () => widget.onSave(_status),
+        successMessage: 'Estado actualizado.',
+        isOffline: widget.isOffline,
+        onSlow: () {
+          if (mounted) setState(() => _slow = true);
         });
-      }
-    }
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (saved) Navigator.pop(context, _status);
   }
 }

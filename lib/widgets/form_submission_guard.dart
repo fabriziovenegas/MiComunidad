@@ -12,6 +12,7 @@ class FormSubmissionGuard extends StatefulWidget {
     this.validate,
     this.slowAfter,
     this.errorMessage,
+    this.slowMessage = 'El guardado está tardando. Comprueba tu conexión',
   });
 
   final Future<void> Function() onSubmit;
@@ -19,6 +20,7 @@ class FormSubmissionGuard extends StatefulWidget {
   final bool Function()? validate;
   final Duration? slowAfter;
   final String Function(Object error)? errorMessage;
+  final String slowMessage;
 
   static bool isTakingLong(BuildContext context) =>
       context.findAncestorStateOfType<_FormSubmissionGuardState>()?._slow ??
@@ -54,8 +56,7 @@ class _FormSubmissionGuardState extends State<FormSubmissionGuard> {
       _slowTimer = Timer(delay, () {
         if (!mounted || !_saving) return;
         setState(() => _slow = true);
-        showWarningNotice(
-            context, 'El guardado está tardando. Comprueba tu conexión');
+        showWarningNotice(context, widget.slowMessage);
       });
     }
     try {

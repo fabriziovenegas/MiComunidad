@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -86,6 +87,80 @@ void main() {
     final root = await temporary.resolveSymbolicLinks();
     expect(root, contains('report-outbox-test-'));
     await Directory(root).delete(recursive: true);
+  });
+
+  for (final count in [1, 2, 3]) {
+    test('$count photos survive offline restart and retry without duplicates',
+        () async {
+      final images = [for (var i = 0; i < count; i++) await photo()];
+      delivery.beforeReport = (_) async => throw noConnection();
+      await service().submit(
+          id: 'multi',
+          expectedUserId: 'owner',
+          fields: reportFields,
+          images: images);
+      final reopened = service();
+      expect((await reopened.pendingFor('owner')).single.photoNames,
+          hasLength(count));
+      delivery.beforeReport = null;
+      delivery.beforePhoto = (item) async {
+        if (item.photoIndex == 1) throw noConnection();
+      };
+      await reopened.processPending();
+      delivery.beforePhoto = null;
+      await service().processPending();
+      await service().processPending();
+      expect(delivery.reports, hasLength(1));
+      expect(delivery.photos, hasLength(count));
+      expect(await reopened.pendingFor('owner'), isEmpty);
+    });
+  }
+
+  test('four photos are rejected before saving or sending', () async {
+    final image = await photo();
+    await expectLater(
+        service().submit(
+            id: 'four',
+            expectedUserId: 'owner',
+            fields: reportFields,
+            images: List.filled(4, image)),
+        throwsA(isA<FileUploadException>()));
+    expect(delivery.reportCalls, 0);
+    expect(await service().pendingFor('owner'), isEmpty);
+  });
+
+  test('failed second local copy does not publish an incomplete report',
+      () async {
+    final image = await photo();
+    final missing = SelectedUpload(PlatformFile(
+        name: 'missing.png', size: 4, path: '${temporary.path}/missing.png'));
+    await expectLater(
+        service().submit(
+            id: 'incomplete',
+            expectedUserId: 'owner',
+            fields: reportFields,
+            images: [image, missing]),
+        throwsA(isA<FileSystemException>()));
+    expect(delivery.reportCalls, 0);
+    expect(await service().pendingFor('owner'), isEmpty);
+  });
+
+  test('legacy single-photo manifest remains recoverable', () async {
+    delivery.beforeReport = (_) async => throw noConnection();
+    await submit(service(), image: await photo());
+    final manifest = File('${outbox.path}/stable-report/report.json');
+    await manifest.writeAsString(jsonEncode({
+      'version': 1,
+      'id': 'stable-report',
+      'userId': 'owner',
+      'fields': reportFields,
+      'photoName': 'original.png',
+    }));
+    delivery.beforeReport = null;
+    await service().processPending();
+    expect(delivery.photos.keys.single,
+        'reports/stable-report/photos/stable-report_photo.png');
+    expect(await service().pendingFor('owner'), isEmpty);
   });
 
   test('both report and flushed photo exist on disk before first network call',
@@ -186,6 +261,62 @@ void main() {
     expect(delivery.reports, hasLength(1));
   });
 
+  test('default submission grace period is ten seconds', () {
+    expect(
+        PendingReportService(
+                directory: () async => outbox,
+                currentUserId: () => user,
+                delivery: delivery)
+            .foregroundWait,
+        const Duration(seconds: 10));
+  });
+
+  test('confirmation within grace period returns sent instead of pending',
+      () async {
+    final queue = service(wait: const Duration(milliseconds: 180));
+    final entered = Completer<void>();
+    final ack = Completer<void>();
+    delivery.beforeReport = (_) {
+      entered.complete();
+      return ack.future;
+    };
+    var completed = false;
+    final sending = submit(queue).then((result) {
+      completed = true;
+      return result;
+    });
+    await entered.future;
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(completed, false);
+    ack.complete();
+    expect((await sending).state, ReportSendState.sent);
+  });
+
+  test('quick offline failure does not show pending before grace period',
+      () async {
+    const wait = Duration(milliseconds: 100);
+    delivery.beforeReport = (_) async => throw noConnection();
+    final elapsed = Stopwatch()..start();
+    final result = await submit(service(wait: wait));
+    expect(result.state, ReportSendState.queued);
+    expect(elapsed.elapsed, greaterThanOrEqualTo(wait));
+  });
+
+  test('background success during grace period replaces pending result',
+      () async {
+    final queue = service(wait: const Duration(milliseconds: 180));
+    delivery.beforeReport = (_) async => throw noConnection();
+    final sending = submit(queue);
+    while (delivery.reportCalls == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    delivery.beforeReport = null;
+    await queue.processPending();
+    expect((await sending).state, ReportSendState.sent);
+    expect(delivery.reports, hasLength(1));
+  });
+
   test('slow connection returns local confirmation and completes later once',
       () async {
     final queue = service(wait: const Duration(milliseconds: 30));
@@ -193,6 +324,8 @@ void main() {
     delivery.beforeReport = (_) => ack.future;
     final result = await submit(queue, image: await photo());
     expect(result.state, ReportSendState.queued);
+    expect(result.message,
+        'Reporte guardado en este teléfono. El envío sigue pendiente.');
     expect(await queue.pendingFor('owner'), hasLength(1));
     final background = queue.processPending();
     ack.complete();
@@ -218,6 +351,26 @@ void main() {
     user = 'owner';
     await reopened.processPending();
     expect(delivery.photos, hasLength(1));
+  });
+
+  test(
+      'slow photo upload never reports missing connection or complete delivery',
+      () async {
+    final queue = service(wait: const Duration(milliseconds: 30));
+    final ack = Completer<void>();
+    delivery.beforePhoto = (_) => ack.future;
+    final result = await submit(queue, image: await photo());
+    expect(result.reportConfirmed, true);
+    expect(result.state, ReportSendState.queued);
+    expect(result.message,
+        'Reporte guardado en este teléfono. El envío sigue pendiente.');
+    final finishing = queue.processPending();
+    ack.complete();
+    await finishing;
+    expect(delivery.photos, hasLength(1));
+    expect(await queue.pendingFor('owner'), isEmpty);
+    final confirmed = await submit(queue, id: 'confirmed');
+    expect(confirmed.message, 'Reporte enviado a revisión.');
   });
 
   test('signed out users leave pending reports untouched', () async {

@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
-import 'upload_error_notice.dart';
+import 'online_action_dialog.dart';
 
 class CommunityMapPointSheet extends StatefulWidget {
   const CommunityMapPointSheet(
       {super.key,
       required this.title,
       required this.description,
-      this.onDelete});
+      this.onDelete,
+      this.actionKey,
+      this.isOffline});
   final String title;
   final String description;
   final Future<void> Function()? onDelete;
+  final String? actionKey;
+  final Future<bool> Function()? isOffline;
   @override
   State<CommunityMapPointSheet> createState() => _CommunityMapPointSheetState();
 }
@@ -18,33 +22,20 @@ class _CommunityMapPointSheetState extends State<CommunityMapPointSheet> {
   bool _busy = false;
   Future<void> _delete() async {
     if (_busy || widget.onDelete == null) return;
-    // Reserve the action before opening confirmation to prevent stacked dialogs.
     setState(() => _busy = true);
     try {
-      final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-                  title: const Text('Eliminar punto'),
-                  content: Text(
-                      '¿Deseas eliminar «${widget.title}» del mapa? Esta acción no se puede deshacer.'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('Cancelar')),
-                    FilledButton(
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text('Eliminar'))
-                  ]));
-      if (confirmed != true || !mounted) return;
-      await widget.onDelete!();
-      if (!mounted) return;
-      showSuccessNotice(context, 'Punto eliminado.');
-      Navigator.pop(context);
-    } catch (_) {
-      if (mounted) {
-        showUploadError(
-            context, 'No se pudo eliminar el punto. Inténtalo nuevamente.');
-      }
+      final deleted = await showOnlineActionConfirmation(context,
+          actionKey: widget.actionKey ?? 'delete-map-point:${widget.title}',
+          title: 'Eliminar punto',
+          question:
+              '¿Deseas eliminar «${widget.title}» del mapa? Esta acción no se puede deshacer.',
+          confirmLabel: 'Eliminar',
+          successMessage: 'Punto eliminado.',
+          slowMessage:
+              'La eliminación del punto del mapa está tardando. Verifica tu conexión.',
+          isOffline: widget.isOffline,
+          action: widget.onDelete!);
+      if (deleted == true && mounted) Navigator.pop(context);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

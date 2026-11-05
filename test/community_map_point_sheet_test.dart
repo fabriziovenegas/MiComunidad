@@ -15,6 +15,7 @@ Future<void> open(WidgetTester tester,
                       showDragHandle: true,
                       builder: (_) => CommunityMapPointSheet(
                           title: 'Referencia ficticia',
+                          isOffline: () async => false,
                           description: 'Descripción de prueba',
                           onDelete: onDelete)),
                   child: const Text('Abrir'))))));
@@ -83,7 +84,9 @@ void main() {
       if (i == 0) {
         expect(find.text('Referencia ficticia'), findsOneWidget);
         expect(find.text('Punto eliminado.'), findsNothing);
-        expect(find.textContaining('No se pudo eliminar'), findsOneWidget);
+        expect(find.textContaining('No se pudo confirmar'), findsOneWidget);
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
       }
     }
     expect(calls, 2);

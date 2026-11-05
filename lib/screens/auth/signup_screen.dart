@@ -1,3 +1,4 @@
+import '../../widgets/online_action_dialog.dart';
 import '../../widgets/limited_text_form_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,7 +8,9 @@ import '../../services/access_request_document_picker.dart';
 import '../../widgets/access_request_documents_section.dart';
 
 class SignupScreen extends StatefulWidget {
-  const SignupScreen({super.key, this.pickDocument, this.submitRequest});
+  const SignupScreen(
+      {super.key, this.pickDocument, this.submitRequest, this.isOffline});
+  final Future<bool> Function()? isOffline;
 
   final Future<SelectedUpload?> Function(AccessDocumentSource source)?
       pickDocument;
@@ -45,33 +48,48 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_loading || !_formKey.currentState!.validate()) return;
     if (_identityDocuments.isEmpty) {
-      _message('Adjunta un documento de respaldo.', error: true);
+      _message('Adjunta al menos un documento de respaldo.', error: true);
       return;
     }
     setState(() => _loading = true);
+    String? requestId;
+    final name = _name.text, email = _email.text, dni = _dni.text;
+    final phone = _phone.text, address = _address.text, reason = _reason.text;
+    final timeLivingHere = _timeLiving!;
+    final documents = List<SelectedUpload>.unmodifiable(_identityDocuments);
     try {
-      final requestId = await (widget.submitRequest ??
-          AuthService.instance.submitAccessRequest)(
-        name: _name.text,
-        dni: _dni.text,
-        phone: _phone.text,
-        email: _email.text,
-        address: _address.text,
-        timeLivingHere: _timeLiving!,
-        reason: _reason.text,
-        identityDocuments: List.unmodifiable(_identityDocuments),
-      );
-      if (!mounted) return;
+      final sent = await runOnlineAction(context,
+          actionKey: 'access-request:${identityHashCode(this)}',
+          isOffline: widget.isOffline,
+          offlineMessage:
+              'Necesitas conexión para enviar tu solicitud de ingreso',
+          slowMessage:
+              'El envío de la solicitud está tardando. Verifica tu conexión y mantén la app abierta.',
+          successMessage: null,
+          errorMessage: _friendlyError, action: () async {
+        requestId = await (widget.submitRequest ??
+            AuthService.instance.submitAccessRequest)(
+          name: name,
+          dni: dni,
+          phone: phone,
+          email: email,
+          address: address,
+          timeLivingHere: timeLivingHere,
+          reason: reason,
+          identityDocuments: documents,
+        );
+      });
+      if (!sent || !mounted) return;
       Navigator.pushReplacementNamed(
         context,
         '/request-success',
         arguments: {
           'requestId': requestId,
-          'name': _name.text.trim(),
-          'email': _email.text.trim(),
-          'dni': _dni.text.trim(),
+          'name': name.trim(),
+          'email': email.trim(),
+          'dni': dni.trim(),
         },
       );
     } catch (error) {
@@ -126,6 +144,7 @@ class _SignupScreenState extends State<SignupScreen> {
                               'Todos los campos son obligatorios. El administrador revisará la solicitud.'),
                           const SizedBox(height: 24),
                           LimitedTextFormField(
+                              enabled: !_loading,
                               characterLimit: 160,
                               controller: _name,
                               textCapitalization: TextCapitalization.words,
@@ -135,6 +154,7 @@ class _SignupScreenState extends State<SignupScreen> {
                               validator: _required),
                           const SizedBox(height: 14),
                           TextFormField(
+                            enabled: !_loading,
                             controller: _dni,
                             keyboardType: TextInputType.number,
                             inputFormatters: [
@@ -150,6 +170,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                           const SizedBox(height: 14),
                           TextFormField(
+                            enabled: !_loading,
                             controller: _phone,
                             keyboardType: TextInputType.phone,
                             inputFormatters: [
@@ -164,6 +185,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                           const SizedBox(height: 14),
                           LimitedTextFormField(
+                            enabled: !_loading,
                             characterLimit: 320,
                             controller: _email,
                             keyboardType: TextInputType.emailAddress,
@@ -178,6 +200,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                           const SizedBox(height: 14),
                           LimitedTextFormField(
+                              enabled: !_loading,
                               characterLimit: 300,
                               controller: _address,
                               textCapitalization: TextCapitalization.sentences,
@@ -198,13 +221,16 @@ class _SignupScreenState extends State<SignupScreen> {
                                 .map((value) => DropdownMenuItem(
                                     value: value, child: Text(value)))
                                 .toList(),
-                            onChanged: (value) =>
-                                setState(() => _timeLiving = value),
+                            onChanged: _loading
+                                ? null
+                                : (value) =>
+                                    setState(() => _timeLiving = value),
                             validator: (value) =>
                                 value == null ? 'Selecciona una opción.' : null,
                           ),
                           const SizedBox(height: 14),
                           LimitedTextFormField(
+                              enabled: !_loading,
                               characterLimit: 1000,
                               controller: _reason,
                               minLines: 3,
@@ -231,6 +257,17 @@ class _SignupScreenState extends State<SignupScreen> {
                                 : const Icon(Icons.send),
                             label: Text(
                                 _loading ? 'Enviando…' : 'Enviar solicitud'),
+                          ),
+                          const SizedBox(height: 10),
+                          Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              _loading
+                                  ? 'Estamos procesando tu solicitud. Mantén la conexión y no salgas de la aplicación hasta que termine.'
+                                  : 'Necesitas conexión a internet para enviar la solicitud.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           ),
                         ],
                       ),

@@ -1,4 +1,6 @@
+import 'online_document_deleter.dart';
 import 'comment_content_editor.dart';
+import 'online_admin_action_writer.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -253,17 +255,23 @@ class CommunityService {
       });
 
   Future<void> moveProjectToTrash(String projectId) async {
-    await updateProject(projectId, {
-      'isTrashed': true,
-      'trashedAt': FieldValue.serverTimestamp(),
-    });
+    await OnlineAdminActionWriter(
+            firestore: _db,
+            currentUserId: () => FirebaseAuth.instance.currentUser?.uid)
+        .archiveProject(projectId);
   }
 
+  Future<void> changeReportStatus(String id, String status) =>
+      OnlineAdminActionWriter(
+              firestore: _db,
+              currentUserId: () => FirebaseAuth.instance.currentUser?.uid)
+          .changeReportStatus(id, status);
+
   Future<void> restoreProject(String projectId) async {
-    await updateProject(projectId, {
-      'isTrashed': false,
-      'trashedAt': FieldValue.delete(),
-    });
+    await OnlineAdminActionWriter(
+            firestore: _db,
+            currentUserId: () => FirebaseAuth.instance.currentUser?.uid)
+        .restoreProject(projectId);
   }
 
   Future<void> permanentlyDeleteArchivedProject(String projectId) async {
@@ -279,7 +287,8 @@ class CommunityService {
     final projectReference = _db.collection('projects').doc(projectId);
 
     try {
-      final project = await projectReference.get();
+      final project =
+          await projectReference.get(const GetOptions(source: Source.server));
       if (!project.exists) {
         throw const ProjectDeletionException(
           failedStep: 'verificar el proyecto',
@@ -344,7 +353,7 @@ class CommunityService {
       completedSteps.add('comentarios ($deletedComments)');
 
       try {
-        await projectReference.delete();
+        await deleteDocumentsOnline(_db, [projectReference]);
       } catch (error) {
         throw ProjectDeletionException(
           failedStep: 'eliminar el documento principal',
@@ -375,14 +384,13 @@ class CommunityService {
 
     try {
       while (true) {
-        final snapshot = await collection.limit(batchSize).get();
+        final snapshot = await collection
+            .limit(batchSize)
+            .get(const GetOptions(source: Source.server));
         if (snapshot.docs.isEmpty) return deletedDocuments;
 
-        final batch = _db.batch();
-        for (final document in snapshot.docs) {
-          batch.delete(document.reference);
-        }
-        await batch.commit();
+        await deleteDocumentsOnline(
+            _db, snapshot.docs.map((document) => document.reference));
         deletedDocuments += snapshot.docs.length;
       }
     } catch (error) {
@@ -462,7 +470,8 @@ class CommunityService {
         );
       }
 
-      final report = await reportReference.get();
+      final report =
+          await reportReference.get(const GetOptions(source: Source.server));
       if (!report.exists) {
         throw const ReportDeletionException(
           failedStep: 'verificar el reporte',
@@ -539,7 +548,7 @@ class CommunityService {
       completedSteps.add('comentarios ($deletedCommentDocuments)');
 
       try {
-        await reportReference.delete();
+        await deleteDocumentsOnline(_db, [reportReference]);
       } catch (error) {
         throw ReportDeletionException(
           failedStep: 'eliminar el documento principal',
@@ -570,14 +579,13 @@ class CommunityService {
 
     try {
       while (true) {
-        final snapshot = await collection.limit(batchSize).get();
+        final snapshot = await collection
+            .limit(batchSize)
+            .get(const GetOptions(source: Source.server));
         if (snapshot.docs.isEmpty) return deletedDocuments;
 
-        final batch = _db.batch();
-        for (final document in snapshot.docs) {
-          batch.delete(document.reference);
-        }
-        await batch.commit();
+        await deleteDocumentsOnline(
+            _db, snapshot.docs.map((document) => document.reference));
         deletedDocuments += snapshot.docs.length;
       }
     } catch (error) {
@@ -716,12 +724,13 @@ class CommunityService {
     required String documentId,
     required String commentId,
   }) =>
-      _db
-          .collection(collection)
-          .doc(documentId)
-          .collection('comments')
-          .doc(commentId)
-          .delete();
+      deleteDocumentsOnline(_db, [
+        _db
+            .collection(collection)
+            .doc(documentId)
+            .collection('comments')
+            .doc(commentId)
+      ]);
 
   Future<void> deleteAttachment({
     required String collection,

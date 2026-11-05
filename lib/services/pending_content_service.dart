@@ -18,7 +18,7 @@ class PendingContentService with WidgetsBindingObserver {
       String? Function()? currentUserId,
       String Function()? newId,
       ContentDelivery? delivery,
-      this.foregroundWait = const Duration(seconds: 4),
+      this.foregroundWait = const Duration(seconds: 10),
       this.retryInterval = const Duration(seconds: 30)})
       : _directory = directory ?? _defaultDirectory,
         _currentUserId = currentUserId ?? _signedInUser,
@@ -191,8 +191,19 @@ class PendingContentService with WidgetsBindingObserver {
           throw StateError('Este envío ya contiene otros datos.');
         }
         if (item.sent) return const PendingSendResult(PendingSendState.sent);
-        return await _attempt(item).timeout(foregroundWait,
+        final elapsed = Stopwatch()..start();
+        final result = await _attempt(item).timeout(foregroundWait,
             onTimeout: () => const PendingSendResult(PendingSendState.queued));
+        if (result.state != PendingSendState.queued) return result;
+        final remaining = foregroundWait - elapsed.elapsed;
+        if (remaining > Duration.zero) await Future<void>.delayed(remaining);
+        final latest = await _read(id);
+        if (latest == null || latest.sent) {
+          return const PendingSendResult(PendingSendState.sent);
+        }
+        return PendingSendResult(
+            latest.blocked ? PendingSendState.blocked : PendingSendState.queued,
+            reason: latest.reason);
       } finally {
         _submissions.remove(id);
         _submissionBodies.remove(id);

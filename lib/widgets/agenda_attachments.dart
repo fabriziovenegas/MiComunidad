@@ -1,3 +1,4 @@
+import 'online_action_dialog.dart';
 import 'attachment_information.dart';
 import 'private_storage_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -57,35 +58,17 @@ class AgendaAttachments extends StatelessWidget {
 
   Future<void> _delete(
       BuildContext context, String id, Map<String, dynamic> data) async {
-    final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-              title: const Text('Eliminar archivo'),
-              content: const Text('¿Deseas eliminar este archivo compartido?'),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Cancelar')),
-                FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Eliminar')),
-              ],
-            ));
-    if (confirmed != true) return;
-    try {
-      await CommunityService.instance.deleteAttachment(
-          collection: collection,
-          documentId: eventId,
-          kind: kind,
-          attachmentId: id,
-          storagePath: data['storagePath'] as String?,
-          downloadUrl: data['url'] as String?);
-    } catch (_) {
-      if (context.mounted) {
-        showUploadError(
-            context, 'No se pudo eliminar el archivo. Inténtalo nuevamente.');
-      }
-    }
+    await showOnlineActionConfirmation(context,
+        actionKey: 'delete-attachment:$collection/$eventId/$kind/$id',
+        title: 'Eliminar archivo',
+        question: '¿Deseas eliminar este archivo compartido?',
+        confirmLabel: 'Eliminar',
+        successMessage: 'Archivo eliminado.',
+        action: () => CommunityService.instance.deleteAttachment(
+            collection: collection,
+            documentId: eventId,
+            kind: kind,
+            attachmentId: id));
   }
 
   @override

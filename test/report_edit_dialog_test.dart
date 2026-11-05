@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:micomunidad/widgets/report_edit_dialog.dart';
 import 'package:micomunidad/widgets/report_status_dialog.dart';
 import 'package:micomunidad/services/report_content_editor.dart';
+import 'package:micomunidad/widgets/upload_error_notice.dart';
 
 const data = {
   'title': 'Demo title',
@@ -23,6 +24,7 @@ Future<void> openDialog(WidgetTester tester, SaveReportEdit? onSave,
     Future<String?> Function()? onChangeStatus,
     Map<String, dynamic> reportData = data,
     bool allowResolvedContentEditing = false,
+    Future<bool> Function()? isOffline,
     GlobalKey<NavigatorState>? navigatorKey}) async {
   await tester.pumpWidget(MaterialApp(
     navigatorKey: navigatorKey,
@@ -36,6 +38,7 @@ Future<void> openDialog(WidgetTester tester, SaveReportEdit? onSave,
                     builder: (_) => ReportEditDialog(
                           data: reportData,
                           onSave: onSave,
+                          isOffline: isOffline ?? () async => false,
                           onChangeStatus: onChangeStatus,
                           allowResolvedContentEditing:
                               allowResolvedContentEditing,
@@ -50,6 +53,36 @@ Future<void> openDialog(WidgetTester tester, SaveReportEdit? onSave,
 }
 
 void main() {
+  tearDown(dismissUploadError);
+  testWidgets('offline edit shows an overlay above the dialog and retains text',
+      (tester) async {
+    var offline = true;
+    var saves = 0;
+    await openDialog(tester, (_) async {
+      saves++;
+    }, isOffline: () async => offline);
+    await tester.enterText(
+        find.byType(TextFormField).first, 'Retained fictional title');
+    await tester.ensureVisible(find.text('Guardar'));
+    await tester.tap(find.text('Guardar'));
+    await tester.pumpAndSettle();
+    expect(saves, 0);
+    expect(find.byKey(const ValueKey('upload-error-notice')), findsOneWidget);
+    expect(find.text('Necesitas conexión para realizar esta acción'),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(AlertDialog),
+            matching:
+                find.text('Necesitas conexión para realizar esta acción')),
+        findsNothing);
+    expect(find.text('Retained fictional title'), findsOneWidget);
+    offline = false;
+    await tester.tap(find.text('Guardar'));
+    await tester.pumpAndSettle();
+    expect(saves, 1);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
   testWidgets('admin owner can resolve and save own content without reopening',
       (tester) async {
     final db = FakeFirebaseFirestore();
@@ -121,6 +154,7 @@ void main() {
         barrierDismissible: false,
         builder: (_) => ReportStatusDialog(
           initialStatus: current['status'] as String,
+          isOffline: () async => false,
           onSave: (status) => reference.update({
             'status': status,
             'updatedAt': FieldValue.serverTimestamp(),

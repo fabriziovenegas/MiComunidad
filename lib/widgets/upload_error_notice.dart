@@ -6,20 +6,24 @@ VoidCallback? _dismissUploadError;
 void dismissUploadError() => _dismissUploadError?.call();
 
 /// Uses the root overlay so dialogs and expanded bottom sheets cannot hide it.
-void showUploadError(BuildContext context, String message) =>
-    _showNotice(context, message, isError: true);
+void showUploadError(BuildContext context, String message,
+        {OverlayState? overlay}) =>
+    _showNotice(context, message, isError: true, targetOverlay: overlay);
 
 /// Shows a confirmed save above the closing form and the navigation bar.
-void showSuccessNotice(BuildContext context, String message) =>
-    _showNotice(context, message, isError: false);
+void showSuccessNotice(BuildContext context, String message,
+        {OverlayState? overlay}) =>
+    _showNotice(context, message, isError: false, targetOverlay: overlay);
 
 void showWarningNotice(BuildContext context, String message) =>
     _showNotice(context, message, isError: false, isWarning: true);
 
 void _showNotice(BuildContext context, String message,
-    {required bool isError, bool isWarning = false}) {
+    {required bool isError,
+    bool isWarning = false,
+    OverlayState? targetOverlay}) {
   if (!context.mounted) return;
-  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  final overlay = targetOverlay ?? Overlay.maybeOf(context, rootOverlay: true);
   if (overlay == null) return;
   _dismissUploadError?.call();
 

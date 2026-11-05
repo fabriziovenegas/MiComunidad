@@ -1,3 +1,4 @@
+import 'online_action_dialog.dart';
 import 'attachment_information.dart';
 import 'comment_edit_dialog.dart';
 import 'content_comment_tile.dart';
@@ -479,10 +480,12 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
   }
 
   Future<void> _editComment(String id, String originalText) async {
-    final saved = await showDialog<bool>(
+    await showDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (_) => CommentEditDialog(
+            actionKey:
+                'edit-comment:${widget.collection}/${widget.documentId}/$id',
             initialText: readableText(originalText),
             onSave: (text) => CommunityService.instance.editComment(
                 collection: widget.collection,
@@ -490,36 +493,22 @@ class _ContentDetailSheetState extends State<ContentDetailSheet> {
                 commentId: id,
                 originalText: originalText,
                 text: text)));
-    if (saved == true && mounted) {
-      showSuccessNotice(context, 'Comentario actualizado.');
-    }
   }
 
   Future<void> _deleteComment(String commentId) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Eliminar comentario'),
-        content: const Text('¿Deseas eliminar este comentario?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      await CommunityService.instance.deleteComment(
-        collection: widget.collection,
-        documentId: widget.documentId,
-        commentId: commentId,
-      );
-    }
+    await showOnlineActionConfirmation(context,
+        actionKey:
+            'delete-comment:${widget.collection}/${widget.documentId}/$commentId',
+        title: 'Eliminar comentario',
+        question: '¿Deseas eliminar este comentario?',
+        confirmLabel: 'Eliminar',
+        successMessage: 'Comentario eliminado.',
+        slowMessage:
+            'La eliminación del comentario está tardando. Verifica tu conexión.',
+        action: () => CommunityService.instance.deleteComment(
+            collection: widget.collection,
+            documentId: widget.documentId,
+            commentId: commentId));
   }
 }
 
@@ -639,34 +628,20 @@ class _Attachments extends StatelessWidget {
                         tooltip: 'Eliminar archivo',
                         icon: const Icon(Icons.delete_outline, size: 18),
                         onPressed: () async {
-                          final confirmed = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('Eliminar archivo'),
-                              content: const Text(
-                                  '¿Deseas eliminar este archivo compartido?'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Cancelar'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('Eliminar'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (confirmed != true) return;
-                          await CommunityService.instance.deleteAttachment(
-                            collection: collection,
-                            documentId: documentId,
-                            kind: kind,
-                            attachmentId: docs[index].id,
-                            storagePath: data['storagePath'] as String?,
-                            downloadUrl: url,
-                          );
+                          await showOnlineActionConfirmation(context,
+                              actionKey:
+                                  'delete-attachment:$collection/$documentId/$kind/${docs[index].id}',
+                              title: 'Eliminar archivo',
+                              question:
+                                  '¿Deseas eliminar este archivo compartido?',
+                              confirmLabel: 'Eliminar',
+                              successMessage: 'Archivo eliminado.',
+                              action: () => CommunityService.instance
+                                  .deleteAttachment(
+                                      collection: collection,
+                                      documentId: documentId,
+                                      kind: kind,
+                                      attachmentId: docs[index].id));
                         },
                       ),
                     ),

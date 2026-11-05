@@ -288,12 +288,14 @@ void main() {
         home: Scaffold(
             body: AccessRequestDocumentLinks(
                 request: request,
+                isOffline: () async => false,
                 open: (document) async {
                   opened.add(document.url);
                 }))));
     expect(find.byType(OutlinedButton), findsNWidgets(3));
     for (var i = 0; i < 3; i++) {
       await tester.tap(find.text('file$i.pdf'));
+      await tester.pumpAndSettle();
     }
     await tester.pumpAndSettle();
     expect(opened, docs.map((d) => d['url']).toList());
@@ -315,6 +317,7 @@ void main() {
         home: Scaffold(
             body: AccessRequestDocumentLinks(
                 request: request,
+                isOffline: () async => false,
                 open: (file) async {
                   expect(file.url, url);
                   opened = true;
@@ -336,6 +339,7 @@ void main() {
     var calls = 0;
     await tester.pumpWidget(MaterialApp(
         home: SignupScreen(
+            isOffline: () async => false,
             pickDocument: (_) async => sample('receipt.pdf'),
             submitRequest: (
                 {required name,
@@ -375,7 +379,8 @@ void main() {
     await tester.tap(send);
     await tester.pumpAndSettle();
     expect(calls, 0);
-    expect(find.text('Adjunta un documento de respaldo.'), findsOneWidget);
+    expect(find.text('Adjunta al menos un documento de respaldo.'),
+        findsOneWidget);
     tester
         .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
         .hideCurrentSnackBar();

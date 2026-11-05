@@ -1,10 +1,13 @@
+import 'dart:async';
 import '../widgets/limited_text_form_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 import '../models/user_model.dart';
 import '../services/community_service.dart';
+import '../services/upload_connection.dart';
+import '../services/edit_save_feedback.dart';
+import '../widgets/upload_error_notice.dart';
 
 typedef ProfileSaver = Future<void> Function({
   required String nombre,
@@ -17,9 +20,11 @@ typedef ProfileSaver = Future<void> Function({
 });
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, required this.user, this.onSave});
+  const ProfileScreen(
+      {super.key, required this.user, this.onSave, this.isOffline});
   final AppUser user;
   final ProfileSaver? onSave;
+  final Future<bool> Function()? isOffline;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -35,6 +40,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late final _reason = TextEditingController(text: widget.user.reason);
   late String _timeLivingHere = widget.user.timeLivingHere;
   bool _saving = false;
+  bool _slow = false;
+  Timer? _slowTimer;
 
   static const _standardTimeOptions = <String>[
     'Menos de 1 año',
@@ -45,6 +52,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _slowTimer?.cancel();
+    if (_slow) dismissUploadError();
     for (final controller in [
       _name,
       _dni,
@@ -61,8 +70,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _save() async {
     if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _saving = true);
+    FocusManager.instance.primaryFocus?.unfocus();
+    dismissUploadError();
+    setState(() {
+      _saving = true;
+      _slow = false;
+    });
+    _slowTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted || !_saving) return;
+      setState(() => _slow = true);
+      showWarningNotice(
+          context, 'El guardado está tardando. Espera un momento');
+    });
     try {
+      if (await (widget.isOffline ?? UploadConnection.isOffline)()) {
+        throw const EditConnectionRequired();
+      }
+      if (!mounted) return;
       await (widget.onSave ?? CommunityService.instance.updateOwnProfile)(
         nombre: _name.text,
         dni: _dni.text,
@@ -73,21 +97,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         reason: _reason.text,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cambios guardados correctamente.')),
-      );
+      dismissUploadError();
+      showSuccessNotice(context, 'Cambios guardados');
     } catch (error) {
       if (mounted) {
-        final message = error is FirebaseFunctionsException
-            ? (error.message ??
-                'No se pudo guardar el perfil. Inténtalo de nuevo.')
-            : 'No se pudo guardar el perfil. Inténtalo de nuevo.';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        dismissUploadError();
+        showUploadError(context, editSaveErrorMessage(error));
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      _slowTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _slow = false;
+        });
+      }
     }
   }
 
@@ -104,7 +128,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => PopScope(
+      canPop: !_saving || _slow,
+      child: Scaffold(
         appBar: AppBar(title: const Text('Mi perfil')),
         body: Form(
           key: _formKey,
@@ -232,10 +258,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.save_outlined),
-                label: Text(_saving ? 'Guardando...' : 'Guardar cambios'),
+                label: Text(_saving
+                    ? (_slow ? 'Esperando confirmación…' : 'Guardando...')
+                    : 'Guardar cambios'),
               ),
             ],
           ),
         ),
-      );
+      ));
 }

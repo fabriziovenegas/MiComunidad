@@ -82,12 +82,15 @@ class FirebaseReportDelivery implements ReportDelivery {
     try {
       _checkAccount(item);
       final profile = await _fresh(_db.collection('users').doc(item.userId));
+      final approvedAdmin = profile.data()?['role'] == 'admin' &&
+          profile.data()?['approvalStatus'] == 'aprobado' &&
+          profile.data()?['profileWithdrawalInProgress'] != true;
       await ref.set({
         ...item.fields,
         'createdByName': profile.data()?['nombre'] ?? '',
         'createdBy': item.userId,
         'status': 'pendiente',
-        'moderationStatus': 'pendiente',
+        'moderationStatus': approvedAdmin ? 'aprobado' : 'pendiente',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -110,7 +113,7 @@ class FirebaseReportDelivery implements ReportDelivery {
     final parent = await _fresh(report);
     if (!parent.exists) throw StateError('El reporte ya no existe.');
     _checkOwner(parent, item);
-    final metadataRef = report.collection('photos').doc(item.id);
+    final metadataRef = report.collection('photos').doc(item.photoAttachmentId);
     bool matches(DocumentSnapshot<Map<String, dynamic>> snapshot) =>
         snapshot.exists &&
         snapshot.data()?['uploadedBy'] == item.userId &&
@@ -131,7 +134,8 @@ class FirebaseReportDelivery implements ReportDelivery {
     try {
       final metadata = await reference.getMetadata();
       if (metadata.customMetadata?['uploadedBy'] != item.userId ||
-          metadata.customMetadata?['reportUploadId'] != item.id) {
+          metadata.customMetadata?['reportUploadId'] !=
+              item.photoAttachmentId) {
         throw StateError('El archivo existente no coincide.');
       }
       exists = true;
@@ -147,7 +151,7 @@ class FirebaseReportDelivery implements ReportDelivery {
             contentType: FileService.contentTypeForName(item.photoName!),
             customMetadata: {
               'uploadedBy': item.userId,
-              'reportUploadId': item.id
+              'reportUploadId': item.photoAttachmentId
             },
           ));
     }
@@ -157,7 +161,7 @@ class FirebaseReportDelivery implements ReportDelivery {
         'collection': 'reports',
         'documentId': item.id,
         'kind': 'photos',
-        'attachmentId': item.id,
+        'attachmentId': item.photoAttachmentId,
         'storagePath': reference.fullPath,
         'name': item.photoName,
       });

@@ -1,3 +1,4 @@
+import '../../widgets/permanent_delete_dialog.dart';
 import '../../widgets/limited_text_form_field.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../models/report_edit.dart';
 import '../../services/community_service.dart';
+import '../../services/upload_connection.dart';
+import '../../services/review_wait_feedback.dart';
 import '../../services/file_service.dart';
 import '../../widgets/content_detail_sheet.dart';
 import '../../widgets/report_detail_sheet.dart';
@@ -13,7 +16,7 @@ import '../../widgets/report_status_dialog.dart';
 import '../../widgets/report_presentation.dart';
 import '../../widgets/pending_report_review_panel.dart';
 import '../../widgets/report_category.dart';
-import '../../widgets/photo_source_menu.dart';
+import '../../widgets/report_photos_section.dart';
 import '../../widgets/current_report_author_name.dart';
 import '../../utils/text_encoding.dart';
 import '../../services/pending_report_service.dart';
@@ -43,6 +46,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   String _filter = 'todos';
   String? _deletingReportId;
   String? _changingStatusReportId;
+  String? _moderatingReportId;
   PendingReportService get _outbox =>
       widget.pendingReports ?? PendingReportService.instance;
 
@@ -57,7 +61,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     var location = '';
     var category = 'obras';
     var priority = 'media';
-    SelectedUpload? image;
+    List<SelectedUpload> images = [];
     var selectingImage = false;
     final save = await showDialog<bool>(
         context: context,
@@ -70,7 +74,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   result = await _outbox.submit(
                       id: reportId,
                       expectedUserId: widget.user.userId,
-                      image: image,
+                      images: images,
                       fields: {
                         'title': title.trim(),
                         'description': description.trim(),
@@ -163,36 +167,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                               : (value) => setDialogState(
                                                   () => priority = value!)),
                                       const SizedBox(height: 12),
-                                      OutlinedButton.icon(
-                                          onPressed: saving || selectingImage
-                                              ? null
-                                              : () async {
-                                                  setDialogState(() =>
-                                                      selectingImage = true);
-                                                  try {
-                                                    final selection =
-                                                        await pickPhotosWithMenu(
-                                                            context,
-                                                            multiple: false);
-                                                    if (context.mounted &&
-                                                        selection.photos
-                                                            .isNotEmpty) {
-                                                      setDialogState(() =>
-                                                          image = selection
-                                                              .photos.single);
-                                                    }
-                                                  } finally {
-                                                    if (context.mounted) {
-                                                      setDialogState(() =>
-                                                          selectingImage =
-                                                              false);
-                                                    }
-                                                  }
-                                                },
-                                          icon: const Icon(
-                                              Icons.add_photo_alternate),
-                                          label: Text(image?.name ??
-                                              'Añadir fotografía (opcional)')),
+                                      ReportPhotosSection(
+                                        photos: images,
+                                        enabled: !saving,
+                                        onChanged: (value) => setDialogState(
+                                            () => images = value),
+                                        onPickingChanged: (value) =>
+                                            setDialogState(
+                                                () => selectingImage = value),
+                                      ),
                                       const SizedBox(height: 8),
                                       const Align(
                                         alignment: Alignment.centerLeft,
@@ -207,21 +190,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               child: const Text('Cancelar')),
                           FilledButton(
                               onPressed: saving ? null : submit,
-                              child: Text(
-                                  saving ? 'Guardando…' : 'Enviar a revisión'))
+                              child: Text(saving
+                                  ? 'Guardando…'
+                                  : widget.user.isAdmin
+                                      ? 'Registrar reporte'
+                                      : 'Enviar a revisión'))
                         ]))));
     if (save != true || !mounted || result == null) return;
     if (result!.state == ReportSendState.blocked) {
-      showUploadError(context,
-          'Reporte guardado en el teléfono. No se pudo completar el envío; revisa los pendientes.');
+      showUploadError(context, result!.message);
     } else {
       showSuccessNotice(
           context,
-          result!.state == ReportSendState.sent
-              ? 'Reporte enviado.'
-              : result!.reportConfirmed
-                  ? 'Reporte enviado. La imagen quedó guardada y se enviará cuando tengas conexión.'
-                  : 'Reporte guardado. Se enviará cuando tengas conexión.');
+          result!.state == ReportSendState.sent && widget.user.isAdmin
+              ? 'Reporte registrado.'
+              : result!.message);
     }
   }
 
@@ -229,56 +212,75 @@ class _ReportsScreenState extends State<ReportsScreen> {
     QueryDocumentSnapshot<Map<String, dynamic>> document,
     bool approve,
   ) async {
-    String? reason;
-    if (!approve) {
-      String inputReason = '';
+    if (_moderatingReportId != null) return;
+    _moderatingReportId = document.id;
+    try {
+      String? reason;
+      if (!approve) {
+        String inputReason = '';
 
-      reason = await showDialog<String>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: const Text('Rechazar reporte'),
-            content: LimitedTextFormField(
-              characterLimit: 1000,
-              maxLines: 3,
-              onChanged: (value) => setDialogState(() => inputReason = value),
-              decoration: const InputDecoration(
-                labelText: 'Motivo',
-                helperText: 'El motivo es obligatorio.',
+        reason = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('Rechazar reporte'),
+              content: LimitedTextFormField(
+                characterLimit: 1000,
+                maxLines: 3,
+                onChanged: (value) => setDialogState(() => inputReason = value),
+                decoration: const InputDecoration(
+                  labelText: 'Motivo',
+                  helperText: 'El motivo es obligatorio.',
+                ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed:
+                      inputReason.trim().isEmpty || inputReason.length > 1000
+                          ? null
+                          : () => Navigator.pop(
+                                dialogContext,
+                                inputReason.trim(),
+                              ),
+                  child: const Text('Rechazar'),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton(
-                onPressed:
-                    inputReason.trim().isEmpty || inputReason.length > 1000
-                        ? null
-                        : () => Navigator.pop(
-                              dialogContext,
-                              inputReason.trim(),
-                            ),
-                child: const Text('Rechazar'),
-              ),
-            ],
           ),
+        );
+        if (reason == null) return;
+      }
+      if (!mounted) return;
+      await waitForReview(
+        action: () => CommunityService.instance.moderateReport(
+          reportId: document.id,
+          approve: approve,
+          reason: reason,
         ),
+        onSlow: () {
+          if (mounted) {
+            showWarningNotice(context,
+                reviewWaitingMessage(approve: approve, isReport: true));
+          }
+        },
       );
-      if (reason == null) return;
+
+      if (!mounted) return;
+
+      showSuccessNotice(
+          context, approve ? 'Reporte aprobado.' : 'Reporte rechazado.');
+    } catch (_) {
+      if (mounted) {
+        showUploadError(context,
+            'No se pudo ${approve ? 'aprobar' : 'rechazar'} el reporte. Revisa su estado antes de reintentar.');
+      }
+    } finally {
+      _moderatingReportId = null;
     }
-    await CommunityService.instance.moderateReport(
-      reportId: document.id,
-      approve: approve,
-      reason: reason,
-    );
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(approve ? 'Reporte aprobado.' : 'Reporte rechazado.'),
-    ));
   }
 
   Future<String?> _changeStatus(
@@ -289,9 +291,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
     _changingStatusReportId = document.id;
     try {
+      if (await UploadConnection.isOffline()) {
+        if (mounted) {
+          showUploadError(
+              context, 'Necesitas conexión para realizar esta acción');
+        }
+        return null;
+      }
       // A dialog can remain open after another status change. Do not reuse its
       // original snapshot when reopening the status selector.
-      final current = await document.reference.get();
+      final current = await waitForReview(
+        action: () => document.reference
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 10)),
+        onSlow: () {
+          if (mounted) {
+            showWarningNotice(
+                context, 'La operación está tardando. Espera un momento');
+          }
+        },
+      );
       final currentData = current.data();
       if (!mounted) return null;
       if (currentData == null ||
@@ -305,8 +324,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
         barrierDismissible: false,
         builder: (_) => ReportStatusDialog(
           initialStatus: currentData['status'] as String? ?? 'pendiente',
-          onSave: (status) => CommunityService.instance
-              .updateReport(document.id, {'status': status}),
+          actionKey: 'report-status:${document.id}',
+          onSave: (status) =>
+              CommunityService.instance.changeReportStatus(document.id, status),
         ),
       );
     } catch (_) {
@@ -367,11 +387,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
       await _changeStatus(document);
       return;
     }
-    final saved = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (_) => ReportEditDialog(
         data: data,
+        actionKey: 'edit-report:${data['documentId']}',
         allowResolvedContentEditing: widget.user.isAdmin,
         onChangeStatus: canAdminChangeReportStatus(widget.user, data)
             ? () => _changeStatus(document)
@@ -385,11 +406,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
             : null,
       ),
     );
-    if (saved == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cambios guardados correctamente.')),
-      );
-    }
   }
 
   Future<void> _openReportDetails(
@@ -472,8 +488,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final deleted = await showDialog<bool>(
       context: sheetContext,
       barrierDismissible: false,
-      builder: (_) => _PermanentDeleteReportDialog(
-        reportTitle: reportTitle,
+      builder: (_) => PermanentDeleteDialog(
+        entity: 'reporte',
+        actionKey: 'delete-report:$reportId',
+        name: reportTitle,
+        details: (error) => error is ReportDeletionException
+            ? error.userMessage
+            : 'No se pudo completar la eliminación. Revisa su estado antes de reintentar.',
         onDelete: () => _deleteReport(reportId),
       ),
     );
@@ -481,9 +502,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     if (deleted != true) return;
     if (sheetContext.mounted) Navigator.pop(sheetContext);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Reporte eliminado definitivamente.')),
-    );
   }
 
   Future<void> _deleteReport(String reportId) async {
@@ -703,114 +721,4 @@ class _PendingReports extends StatelessWidget {
           );
         }).toList(),
       );
-}
-
-class _PermanentDeleteReportDialog extends StatefulWidget {
-  const _PermanentDeleteReportDialog({
-    required this.reportTitle,
-    required this.onDelete,
-  });
-
-  final String reportTitle;
-  final Future<void> Function() onDelete;
-
-  @override
-  State<_PermanentDeleteReportDialog> createState() =>
-      _PermanentDeleteReportDialogState();
-}
-
-class _PermanentDeleteReportDialogState
-    extends State<_PermanentDeleteReportDialog> {
-  String _confirmation = '';
-  bool _deleting = false;
-  String? _errorMessage;
-
-  Future<void> _delete() async {
-    if (_deleting || _confirmation != 'CONFIRMAR') return;
-    setState(() {
-      _deleting = true;
-      _errorMessage = null;
-    });
-
-    try {
-      await widget.onDelete();
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _deleting = false;
-        _errorMessage = error is ReportDeletionException
-            ? error.userMessage
-            : 'No se pudo eliminar el reporte. El documento principal se conservó. Error: $error';
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final confirmed = _confirmation == 'CONFIRMAR';
-    return AlertDialog(
-      title: const Text('Eliminar reporte definitivamente'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'La eliminación de “${widget.reportTitle}” es irreversible.',
-            ),
-            const SizedBox(height: 12),
-            const Text('Escribe CONFIRMAR para validar la intención.'),
-            const SizedBox(height: 8),
-            TextField(
-              enabled: !_deleting,
-              onChanged: (value) => setState(() => _confirmation = value),
-              decoration: const InputDecoration(labelText: 'CONFIRMAR'),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              confirmed
-                  ? 'Se eliminarán todas las fotografías y los comentarios asociados. Esta acción no se puede deshacer.'
-                  : 'La palabra debe coincidir exactamente.',
-              style: TextStyle(
-                color: confirmed
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.error,
-              ),
-            ),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _errorMessage!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _deleting ? null : () => Navigator.pop(context, false),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: confirmed && !_deleting ? _delete : null,
-          child: _deleting
-              ? const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 10),
-                    Text('Eliminando...'),
-                  ],
-                )
-              : const Text('Eliminar definitivamente'),
-        ),
-      ],
-    );
-  }
 }

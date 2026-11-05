@@ -17,7 +17,8 @@ void main() {
     service = PendingReportService(
         directory: () => Future.value(directory),
         currentUserId: () => 'owner',
-        delivery: delivery);
+        delivery: delivery,
+        foregroundWait: const Duration(milliseconds: 80));
   });
   tearDown(() async {
     final path = await directory.resolveSymbolicLinks();
@@ -50,7 +51,9 @@ void main() {
     await tester.tap(find.text('1 reporte pendiente de envío'));
     await tester.pumpAndSettle();
     expect(find.text(reportFields['title']!), findsOneWidget);
-    expect(find.text('Se enviará cuando tengas conexión y abras la app.'),
+    expect(
+        find.text(
+            'El envío sigue pendiente. Se reintentará automáticamente con la app abierta.'),
         findsOneWidget);
     delivery.beforeReport = null;
     await tester.tap(find.text('Reintentar'));

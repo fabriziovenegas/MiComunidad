@@ -94,6 +94,51 @@ void main() {
         true);
     await Directory(path).delete(recursive: true);
   });
+  test('default project and event submission grace period is ten seconds', () {
+    expect(
+        PendingContentService(
+                directory: () async => root,
+                currentUserId: () => user,
+                delivery: delivery)
+            .foregroundWait,
+        const Duration(seconds: 10));
+  });
+
+  for (final collection in ['projects', 'events']) {
+    test('$collection confirmed during grace period returns sent', () async {
+      final entered = Completer<void>();
+      final ack = Completer<void>();
+      delivery.before = (_) {
+        entered.complete();
+        return ack.future;
+      };
+      final queue = service(wait: const Duration(milliseconds: 180));
+      var completed = false;
+      final sending = submit(queue,
+              collection: collection,
+              fields: collection == 'events' ? eventFields() : projectFields)
+          .then((value) {
+        completed = true;
+        return value;
+      });
+      await entered.future;
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(completed, false);
+      ack.complete();
+      expect((await sending).state, PendingSendState.sent);
+    });
+    test('$collection offline response waits for grace period', () async {
+      const wait = Duration(milliseconds: 100);
+      delivery.before = (_) async => throw offline();
+      final elapsed = Stopwatch()..start();
+      final result = await submit(service(wait: wait),
+          collection: collection,
+          fields: collection == 'events' ? eventFields() : projectFields);
+      expect(result.state, PendingSendState.queued);
+      expect(elapsed.elapsed, greaterThanOrEqualTo(wait));
+    });
+  }
+
   test(
       'queued comments use the current profile name instead of an old supplied name',
       () async {

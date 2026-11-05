@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/user_model.dart';
 import '../../widgets/community_info_dialog.dart';
+import '../../widgets/admin_upcoming_event_card.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({
@@ -10,10 +11,12 @@ class AdminDashboardScreen extends StatelessWidget {
     required this.user,
     required this.onNavigate,
     this.firestore,
+    this.now,
   });
   final AppUser user;
   final ValueChanged<int> onNavigate;
   final FirebaseFirestore? firestore;
+  final DateTime Function()? now;
 
   @override
   Widget build(BuildContext context) {
@@ -22,12 +25,25 @@ class AdminDashboardScreen extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       children: [
         Text(firstName.isEmpty ? 'Hola' : 'Hola, $firstName',
-            style: Theme.of(context).textTheme.headlineMedium),
-        const Text(
-            'Gestiona la actividad de la comunidad desde un solo lugar.'),
+            style: Theme.of(context)
+                .textTheme
+                .headlineMedium
+                ?.copyWith(fontWeight: FontWeight.w700)),
+        const Text('Gestiona la actividad de tu comunidad.'),
         const SizedBox(height: 18),
-        const CommunityInfoButton(),
-        const SizedBox(height: 18),
+        AdminUpcomingEventCard(
+            firestore: firestore ?? FirebaseFirestore.instance,
+            now: now,
+            onOpenAgenda: () => onNavigate(5)),
+        const SizedBox(height: 12),
+        const CommunityInfoButton(compact: true),
+        const SizedBox(height: 22),
+        Text('Resumen de la comunidad',
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 12),
         _AdaptiveCounts(
           children: [
             _Count(
@@ -48,6 +64,7 @@ class AdminDashboardScreen extends StatelessWidget {
                 firestore: firestore,
                 collection: 'reports',
                 label: 'Reportes',
+                iconBackground: const Color(0xFFFFEDD1),
                 icon: Icons.report,
                 whereNotField: 'moderationStatus',
                 whereNotValue: 'rechazado',
@@ -56,18 +73,37 @@ class AdminDashboardScreen extends StatelessWidget {
                 firestore: firestore,
                 collection: 'events',
                 label: 'Actividades',
+                iconBackground: const Color(0xFFE1EEFA),
                 icon: Icons.event,
                 onTap: () => onNavigate(5)),
           ],
         ),
         const SizedBox(height: 20),
         Text('Accesos de administración',
-            style: Theme.of(context).textTheme.titleLarge),
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700)),
         const SizedBox(height: 10),
         Card(
+          margin: EdgeInsets.zero,
           child: Column(
             children: [
               ListTile(
+                  dense: true,
+                  visualDensity: const VisualDensity(vertical: -1),
+                  minLeadingWidth: 24,
+                  horizontalTitleGap: 12,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                  iconColor: const Color(0xFF276749),
+                  titleTextStyle: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                  subtitleTextStyle: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: const Color(0xFF526258)),
                   leading: const Icon(Icons.people),
                   title: const Text('Solicitudes y vecinos'),
                   subtitle: const Text('Aprobar, rechazar o retirar accesos'),
@@ -75,16 +111,44 @@ class AdminDashboardScreen extends StatelessWidget {
                   onTap: () => onNavigate(3)),
               const Divider(height: 1),
               ListTile(
+                  dense: true,
+                  visualDensity: const VisualDensity(vertical: -1),
+                  minLeadingWidth: 24,
+                  horizontalTitleGap: 12,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                  iconColor: const Color(0xFF276749),
+                  titleTextStyle: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                  subtitleTextStyle: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: const Color(0xFF526258)),
                   leading: const Icon(Icons.edit_calendar),
                   title: const Text('Agenda comunitaria'),
-                  subtitle: const Text('Crear reuniones, subir fotos y actas'),
+                  subtitle: const Text('Gestionar actividades y documentos'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => onNavigate(5)),
               const Divider(height: 1),
               ListTile(
+                  dense: true,
+                  visualDensity: const VisualDensity(vertical: -1),
+                  minLeadingWidth: 24,
+                  horizontalTitleGap: 12,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                  iconColor: const Color(0xFF276749),
+                  titleTextStyle: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                  subtitleTextStyle: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: const Color(0xFF526258)),
                   leading: const Icon(Icons.add_road),
-                  title: const Text('Proyectos'),
-                  subtitle: const Text('Crear y actualizar avances'),
+                  title: const Text('Proyectos comunitarios'),
+                  subtitle: const Text('Consultar y actualizar proyectos'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => onNavigate(1)),
             ],
@@ -101,6 +165,7 @@ class _Count extends StatelessWidget {
       required this.label,
       required this.icon,
       required this.onTap,
+      this.iconBackground = const Color(0xFFE4F3E9),
       this.whereField,
       this.firestore,
       this.whereNotField,
@@ -109,6 +174,7 @@ class _Count extends StatelessWidget {
   final String collection;
   final String label;
   final IconData icon;
+  final Color iconBackground;
   final VoidCallback onTap;
   final FirebaseFirestore? firestore;
   final String? whereField;
@@ -132,6 +198,7 @@ class _Count extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: query.snapshots(),
       builder: (context, snapshot) => Card(
+        margin: EdgeInsets.zero,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: onTap,
@@ -139,14 +206,36 @@ class _Count extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(icon, color: Theme.of(context).colorScheme.primary),
+                  Row(children: [
+                    Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                            color: iconBackground,
+                            borderRadius: BorderRadius.circular(12)),
+                        child: Icon(icon,
+                            color: const Color(0xFF276749), size: 24)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text('${snapshot.data?.size ?? 0}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineMedium
+                                        ?.copyWith(
+                                            fontWeight: FontWeight.w700))))),
+                  ]),
                   const SizedBox(height: 8),
-                  Text('${snapshot.data?.size ?? 0}',
-                      style: Theme.of(context).textTheme.headlineMedium),
-                  const SizedBox(height: 4),
-                  Text(label)
+                  Text(label,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(color: const Color(0xFF526258))),
                 ]),
           ),
         ),
@@ -164,13 +253,11 @@ class _AdaptiveCounts extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
           final columns = constraints.maxWidth > 684 ? 4 : 2;
-          final tileWidth =
-              (constraints.maxWidth - 12 * (columns - 1)) / columns;
           return Column(children: [
             for (var start = 0; start < children.length; start += columns) ...[
               if (start > 0) const SizedBox(height: 12),
               ConstrainedBox(
-                constraints: BoxConstraints(minHeight: tileWidth / 1.35),
+                constraints: const BoxConstraints(minHeight: 108),
                 child: IntrinsicHeight(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
